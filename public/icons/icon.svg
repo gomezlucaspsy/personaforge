@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0d1b3e"/>
+      <stop offset="100%" stop-color="#030714"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#5ec2ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#5ec2ff" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="blur">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="80" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="80" fill="url(#glow)"/>
+
+  <!-- Grid lines -->
+  <g stroke="#3a6fa0" stroke-width="0.7" opacity="0.25">
+    <line x1="0" y1="128" x2="512" y2="128"/>
+    <line x1="0" y1="256" x2="512" y2="256"/>
+    <line x1="0" y1="384" x2="512" y2="384"/>
+    <line x1="128" y1="0" x2="128" y2="512"/>
+    <line x1="256" y1="0" x2="256" y2="512"/>
+    <line x1="384" y1="0" x2="384" y2="512"/>
+  </g>
+
+  <!-- Outer ring -->
+  <circle cx="256" cy="232" r="148" fill="none" stroke="#8fd7ff" stroke-width="2" opacity="0.35"/>
+  <!-- Inner ring -->
+  <circle cx="256" cy="232" r="100" fill="none" stroke="#5ec2ff" stroke-width="1.5" opacity="0.5"/>
+
+  <!-- Arcana card shape (central) -->
+  <rect x="196" y="112" width="120" height="168" rx="12"
+        fill="rgba(8,28,60,0.9)" stroke="#8fd7ff" stroke-width="2"/>
+
+  <!-- Roman numeral I on card -->
+  <text x="256" y="178" text-anchor="middle" font-family="serif" font-size="42"
+        fill="#8fd7ff" opacity="0.9" font-weight="bold">Ⅰ</text>
+
+  <!-- Tarot star motif -->
+  <polygon points="256,130 263,150 284,150 268,163 274,184 256,171 238,184 244,163 228,150 249,150"
+           fill="#5ec2ff" opacity="0.85"/>
+
+  <!-- Bottom label -->
+  <rect x="176" y="288" width="160" height="28" rx="6"
+        fill="rgba(8,28,60,0.7)" stroke="#8fd7ff" stroke-width="1" opacity="0.7"/>
+  <text x="256" y="307" text-anchor="middle" font-family="monospace" font-size="13"
+        fill="#8fd7ff" letter-spacing="2">PERSONA</text>
+
+  <!-- Corner accents -->
+  <circle cx="256" cy="420" r="16" fill="none" stroke="#5ec2ff" stroke-width="1.5" opacity="0.4"/>
+  <circle cx="256" cy="420" r="5" fill="#8fd7ff" opacity="0.7"/>
+
+  <!-- Decorative corner pips -->
+  <circle cx="92" cy="92" r="4" fill="#5ec2ff" opacity="0.35"/>
+  <circle cx="420" cy="92" r="4" fill="#5ec2ff" opacity="0.35"/>
+  <circle cx="92" cy="420" r="4" fill="#5ec2ff" opacity="0.35"/>
+  <circle cx="420" cy="420" r="4" fill="#5ec2ff" opacity="0.35"/>
+</svg>

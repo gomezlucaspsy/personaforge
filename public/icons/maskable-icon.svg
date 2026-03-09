@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg2" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0d1b3e"/>
+      <stop offset="100%" stop-color="#030714"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="50%" cy="40%" r="55%">
+      <stop offset="0%" stop-color="#5ec2ff" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#5ec2ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Full bleed background (maskable icons need content within 80% safe zone) -->
+  <rect width="512" height="512" fill="url(#bg2)"/>
+  <rect width="512" height="512" fill="url(#glow2)"/>
+
+  <!-- Safe zone starts at ~10% = 51px, card content within 390x390 centered at 256 -->
+  <rect x="186" y="136" width="140" height="196" rx="14"
+        fill="rgba(8,28,60,0.9)" stroke="#8fd7ff" stroke-width="2.5"/>
+
+  <text x="256" y="208" text-anchor="middle" font-family="serif" font-size="50"
+        fill="#8fd7ff" opacity="0.9" font-weight="bold">Ⅰ</text>
+
+  <polygon points="256,152 264,176 290,176 270,192 278,216 256,200 234,216 242,192 222,176 248,176"
+           fill="#5ec2ff" opacity="0.85"/>
+
+  <text x="256" y="310" text-anchor="middle" font-family="monospace" font-size="15"
+        fill="#8fd7ff" letter-spacing="3" opacity="0.9">PERSONA</text>
+</svg>
