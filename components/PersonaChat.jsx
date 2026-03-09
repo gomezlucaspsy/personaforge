@@ -88,10 +88,15 @@ const THEME_PRESETS = {
   },
 };
 
+const DEFAULT_CHARACTERS = [];
+
 const loadCharacters = () => {
   try {
     const stored = localStorage.getItem("persona_characters_v2");
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed.filter((c) => !c?.isDefault);
+    }
   } catch {}
   return DEFAULT_CHARACTERS;
 };
@@ -148,7 +153,6 @@ export default function PersonaChat() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchStatus, setSearchStatus] = useState("");
   const [themeKey, setThemeKey] = useState(loadTheme);
-  const [clock, setClock] = useState(() => new Date());
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -165,10 +169,7 @@ export default function PersonaChat() {
   useEffect(() => {
     saveTheme(themeKey);
   }, [themeKey]);
-  useEffect(() => {
-    const id = setInterval(() => setClock(new Date()), 30000);
-    return () => clearInterval(id);
-  }, []);
+
 
   const openCreate = () => {
     setForm({ name: "", title: "", arcana: "IX", archetype: "THE HERMIT", color: "#4a8fc0", avatar: "👁️", description: "", systemPrompt: "", greeting: "" });
