@@ -546,9 +546,6 @@ export default function PersonaChat() {
         <div className="p3tl" />
         <div className="p3br" />
         <div className="p3wm">ORBITAL FREEBASE // SOCIAL LINK OS</div>
-        <div className="p3sys">
-          <span className="p3time">{clock.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-        </div>
         <div className="p3theme">
           <span className="p3theme-label">Theme</span>
           <select className="p3theme-sel" value={themeKey} onChange={(e) => setThemeKey(e.target.value)}>
