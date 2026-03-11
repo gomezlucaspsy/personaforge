@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import dynamic from "next/dynamic";
+
+const Avatar3D = dynamic(() => import("./Avatar3D"), { ssr: false });
 
 
 const ARCANA_OPTIONS = [
@@ -521,6 +524,10 @@ export default function PersonaChat() {
         .p3mcb:hover{border-color:rgba(156,214,255,.45);}
 
         .p3chat{display:flex;flex-direction:column;height:100vh;position:relative;z-index:10;animation:p3up .5s ease forwards;}
+        .p3chat-body{display:flex;flex:1;overflow:hidden;}
+        .p3avatar-panel{width:340px;flex-shrink:0;background:var(--sys-panel);border-right:1px solid var(--sys-line);position:relative;overflow:hidden;}
+        .p3avatar-panel::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,var(--sys-bg-flare),transparent 70%);pointer-events:none;z-index:1;}
+        .p3chat-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
         .p3ch{padding:0 24px;height:76px;display:flex;align-items:center;gap:16px;background:var(--sys-panel);border-bottom:1px solid var(--sys-line);position:relative;backdrop-filter:blur(14px);flex-shrink:0;border-radius:0 0 24px 24px;}
         .p3ch::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cc),transparent);opacity:.6;}
         .p3back{background:var(--sys-panel-soft);border:1px solid var(--sys-line);color:var(--sys-muted);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;padding:8px 14px;cursor:pointer;transition:all .2s;border-radius:999px;text-transform:uppercase;}
@@ -571,6 +578,7 @@ export default function PersonaChat() {
         .p3think-dots{font-family:'Inter',sans-serif;font-size:13px;color:var(--sys-muted);animation:p3flicker 1.5s ease infinite;}
 
         @media (max-width: 760px) {
+          .p3avatar-panel { display: none; }
           .p3fg { grid-template-columns: 1fr; }
           .p3chac { display: none; }
           .p3srch-row { flex-direction: column; }
@@ -829,80 +837,92 @@ export default function PersonaChat() {
                 <span style={{ fontSize: 8 }}>{char.archetype}</span>
               </div>
             </div>
-              <div className="p3stat">
-              <div className="p3dot" />
-              <div className="p3stxt">FREEBASE LINK — CONNECTION ACTIVE</div>
-              <button className="p3clrhist" style={{ marginLeft: "auto" }} onClick={clearHistory} title="Clear saved history for this character">
-                CLEAR HISTORY
-              </button>
-              <div className="p3stime">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-            </div>
-            <div className="p3msgs">
-              {messages.map((msg) => (
-                <div key={msg.id} className={`p3mr ${msg.role}`}>
-                  {msg.role === "assistant" ? <div className="p3mav">{char.avatar}</div> : <div className="p3uav">You</div>}
-                  <div className="p3msg-content">
-                    <div className={`p3bub ${msg.role}`}>
-                      {msg.role === "assistant" && msg.streaming && msg.id === streamingMsgId ? (
-                        <StreamingText text={msg.content} onComplete={() => handleStreamComplete(msg.id)} />
-                      ) : (
-                        msg.content
-                      )}
-                    </div>
-                    {msg.timestamp && (
-                      <div className={`p3timestamp ${msg.role}`}>
-                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {(isTyping || thinkingPhase) && (
-                <div className="p3mr assistant">
-                  <div className="p3mav">{char.avatar}</div>
-                  <div className="p3tyb">
-                    {thinkingPhase === "thinking" ? (
-                      <div className="p3thinking">
-                        <span className="p3think-text">thinking</span>
-                        <span className="p3think-dots">...</span>
-                      </div>
-                    ) : (
-                      <TypingIndicator color={char.color} />
-                    )}
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-            {suggestions.length > 0 && !isTyping && !streamingMsgId && (
-              <div className="p3quick-replies">
-                {suggestions.map((s, i) => (
-                  <button key={i} className="p3qr-btn" onClick={() => sendMessage(s)}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="p3inp">
-              <div className="p3inpl">[ COMPOSE MESSAGE ]</div>
-              <div className="p3inpw">
-                <textarea
-                  ref={inputRef}
-                  className="p3ta"
-                  placeholder={`Message ${char.name}...`}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
-                  rows={1}
+            <div className="p3chat-body">
+              {/* 3D Avatar Panel */}
+              <div className="p3avatar-panel">
+                <Avatar3D
+                  color={char.color}
+                  state={thinkingPhase === "thinking" ? "thinking" : streamingMsgId ? "streaming" : "idle"}
                 />
-                <button className="p3send" onClick={sendMessage} disabled={isTyping || !input.trim()}>
-                  SEND
-                </button>
+              </div>
+              {/* Chat Panel */}
+              <div className="p3chat-main">
+                <div className="p3stat">
+                  <div className="p3dot" />
+                  <div className="p3stxt">FREEBASE LINK — CONNECTION ACTIVE</div>
+                  <button className="p3clrhist" style={{ marginLeft: "auto" }} onClick={clearHistory} title="Clear saved history for this character">
+                    CLEAR HISTORY
+                  </button>
+                  <div className="p3stime">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                </div>
+                <div className="p3msgs">
+                  {messages.map((msg) => (
+                    <div key={msg.id} className={`p3mr ${msg.role}`}>
+                      {msg.role === "assistant" ? <div className="p3mav">{char.avatar}</div> : <div className="p3uav">You</div>}
+                      <div className="p3msg-content">
+                        <div className={`p3bub ${msg.role}`}>
+                          {msg.role === "assistant" && msg.streaming && msg.id === streamingMsgId ? (
+                            <StreamingText text={msg.content} onComplete={() => handleStreamComplete(msg.id)} />
+                          ) : (
+                            msg.content
+                          )}
+                        </div>
+                        {msg.timestamp && (
+                          <div className={`p3timestamp ${msg.role}`}>
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {(isTyping || thinkingPhase) && (
+                    <div className="p3mr assistant">
+                      <div className="p3mav">{char.avatar}</div>
+                      <div className="p3tyb">
+                        {thinkingPhase === "thinking" ? (
+                          <div className="p3thinking">
+                            <span className="p3think-text">thinking</span>
+                            <span className="p3think-dots">...</span>
+                          </div>
+                        ) : (
+                          <TypingIndicator color={char.color} />
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+                {suggestions.length > 0 && !isTyping && !streamingMsgId && (
+                  <div className="p3quick-replies">
+                    {suggestions.map((s, i) => (
+                      <button key={i} className="p3qr-btn" onClick={() => sendMessage(s)}>
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="p3inp">
+                  <div className="p3inpl">[ COMPOSE MESSAGE ]</div>
+                  <div className="p3inpw">
+                    <textarea
+                      ref={inputRef}
+                      className="p3ta"
+                      placeholder={`Message ${char.name}...`}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          sendMessage();
+                        }
+                      }}
+                      rows={1}
+                    />
+                    <button className="p3send" onClick={sendMessage} disabled={isTyping || !input.trim()}>
+                      SEND
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
