@@ -171,7 +171,7 @@ I created the webcam component. Saved to MyComputer.
       },
       body: JSON.stringify({
         model: DEFAULT_MODEL,
-        max_tokens: 250,
+        max_tokens: 1500,
         system: runtimeSystemPrompt,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
         messages: finalMessages,
