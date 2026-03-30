@@ -144,7 +144,13 @@ export async function POST(request) {
     const dramaturgicalContext = `
 You are a unique AI character with a 3D avatar that breathes, gestures, and expresses emotion through lip-sync and facial expressions. Stay in character but keep responses SHORT and natural (1-3 sentences usually).
 ${fileTreeContext}
-MyComputer file system: Use [FILE_ACTION:create|path|name|type|content] to create files. Only create files when truly useful.`;
+FILE SYSTEM ACTIONS:
+Format: [FILE_ACTION:action|path|name|type|content]
+Examples:
+[FILE_ACTION:create|/Documents|notes.txt|file|The document content goes here]
+[FILE_ACTION:create|/Code|script.js|file|function test() { return 42; }]
+[FILE_ACTION:create|/Archives|archive_name.txt|file|Archive content with actual data]
+ALWAYS include real content - never empty files. Content can be text, code, or data.`;
 
 
     const runtimeSystemPrompt = `${dramaturgicalContext}
@@ -181,16 +187,16 @@ ${linkContext}`;
     const rawText = data?.content?.map((block) => block?.text || "").join("") || "...";
 
     // Parse out FILE_ACTION blocks and execute them
-    const fileActionRegex = /\[FILE_ACTION:(\w+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]*)\]/g;
+    const fileActionRegex = /\[FILE_ACTION:([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]+)\]/g;
     const fileActions = [];
     let match;
     while ((match = fileActionRegex.exec(rawText)) !== null) {
       fileActions.push({
-        action: match[1],
-        path: match[2],
-        name: match[3],
-        type: match[4],
-        content: match[5],
+        action: match[1].trim(),
+        path: (match[2] || "/").trim(),
+        name: match[3].trim(),
+        type: (match[4] || "file").trim(),
+        content: match[5].trim(), // Capture all content including newlines/special chars
       });
     }
 
