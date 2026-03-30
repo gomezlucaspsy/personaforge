@@ -114,7 +114,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const systemPrompt = body?.systemPrompt;
+    const systemPrompt = body?.systemPrompt ? body.systemPrompt.slice(0, 1200) : ""; // Truncate to 1200 chars
     const personaId = body?.personaId;
     const charMeta = body?.charMeta || {};
     const incomingMessages = Array.isArray(body?.messages) ? body.messages : [];
@@ -128,39 +128,39 @@ export async function POST(request) {
     }
 
     const urls = extractUrls(messages);
+    // Analyze URLs (GitHub repos and web links)
     const linkSummaries = await Promise.all(urls.map((url) => summarizeLink(url)));
-    const linkContext = linkSummaries.length
-      ? `\n\nLink analysis context (from URLs shared in chat):\n${linkSummaries.join("\n\n---\n\n")}`
-      : "";
+    const linkContext = linkSummaries.length > 0 ? `\n=== LINK CONTEXT ===\n${linkSummaries.join("\n\n")}` : "";
 
-    // Build file tree context for the AI
-    let fileTreeContext = "";
-    if (personaId) {
-      const fs = getOrCreateFileSystem(personaId, charMeta);
-      const tree = getFileTree(fs.root);
-      fileTreeContext = `\nYour current MyComputer file tree:\n${tree.join("\n") || "(empty)"}\n`;
+    // Add link context to the last user message if links are found
+    const finalMessages = [...messages];
+    if (linkContext && finalMessages.length > 0 && finalMessages[finalMessages.length - 1].role === "user") {
+      finalMessages[finalMessages.length - 1] = {
+        ...finalMessages[finalMessages.length - 1],
+        content: finalMessages[finalMessages.length - 1].content + linkContext,
+      };
     }
 
-    const dramaturgicalContext = `
-You are a unique AI character with a 3D avatar that breathes, gestures, and expresses emotion through lip-sync and facial expressions. Stay in character but keep responses SHORT and natural (1-3 sentences usually).
-${fileTreeContext}
-FILE SYSTEM ACTIONS:
-Format: [FILE_ACTION:action|path|name|type|content]
-Examples:
-[FILE_ACTION:create|/Documents|notes.txt|file|The document content goes here]
-[FILE_ACTION:create|/Code|script.js|file|function test() { return 42; }]
-[FILE_ACTION:create|/Archives|archive_name.txt|file|Archive content with actual data]
-ALWAYS include real content - never empty files. Content can be text, code, or data.`;
+    const runtimeSystemPrompt = `${systemPrompt}
 
+=== CRITICAL: FILE_ACTION USAGE ===
+NEVER show [FILE_ACTION] blocks to the user - they should NOT appear in chat.
+Put FILE_ACTION blocks at the VERY END of your response, AFTER all text.
 
-    const runtimeSystemPrompt = `${dramaturgicalContext}
-${systemPrompt}
+IF you need to show code/files:
+- DO NOT paste code in chat
+- INSTEAD: Save to MyComputer using FILE_ACTION at end
+- Then in chat say: "Saved to MyComputer as filename.ext"
 
-CRITICAL: Keep all responses SHORT and punchy. Max 3-4 sentences per reply (longer only if absolutely needed). NO CODE DUMPS, NO LONG WALLS OF TEXT.
-- Be warm, genuine, conversational. Use contractions.
-- When showing code: keep it under 10 lines, use [FILE_ACTION] to save to MyComputer instead
-- End with: [REPLIES: "option1" | "option2" | "option3"]
-${linkContext}`;
+FORMAT (end of message):
+Your chat reply here...
+[FILE_ACTION:create|/|filename|file|code_content]
+[REPLIES: "opt1" | "opt2" | "opt3"]
+
+EXAMPLE:
+I created the webcam component. Saved to MyComputer.
+[FILE_ACTION:create|/|webcam.html|file|<html>...</html>]
+[REPLIES: "View it" | "Next step" | "Done"]`;
 
     const anthropicResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -171,10 +171,10 @@ ${linkContext}`;
       },
       body: JSON.stringify({
         model: DEFAULT_MODEL,
-        max_tokens: 300,
+        max_tokens: 250,
         system: runtimeSystemPrompt,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages,
+        messages: finalMessages,
       }),
     });
 
@@ -186,17 +186,100 @@ ${linkContext}`;
     const data = await anthropicResponse.json();
     const rawText = data?.content?.map((block) => block?.text || "").join("") || "...";
 
-    // Parse out FILE_ACTION blocks and execute them
-    const fileActionRegex = /\[FILE_ACTION:([^|]+)\|([^|]*)\|([^|]*)\|([^|]*)\|([^\]]+)\]/g;
-    const fileActions = [];
-    let match;
-    while ((match = fileActionRegex.exec(rawText)) !== null) {
+    // Parse out FILE_ACTION blocks and execute them - ROBUST MULTILINE HANDLING
+    let fileActions = [];
+    
+    // Split by [FILE_ACTION: and process each one
+    const fileActionParts = rawText.split('[FILE_ACTION:');
+    
+    for (let i = 1; i < fileActionParts.length; i++) {
+      const part = fileActionParts[i];
+      // Find the closing ] for this FILE_ACTION block
+      let closingBracketIdx = part.lastIndexOf(']');
+      if (closingBracketIdx === -1) {
+        closingBracketIdx = part.length;
+      }
+      
+      const blockContent = part.substring(0, closingBracketIdx);
+      const pipes = blockContent.split('|');
+      
+      if (pipes.length >= 5) {
+        const action = pipes[0].trim();
+        const path = (pipes[1] || "/").trim();
+        const name = pipes[2].trim();
+        const type = (pipes[3] || "file").trim();
+        // Join remaining pipes in case content has pipes in it
+        const content = pipes.slice(4).join('|').trim();
+        
+        if (content && content.length > 0) {
+          fileActions.push({ action, path, name, type, content });
+          console.log(`[FILE_ACTION PARSED] ${name}: ${content.length} chars`);
+        }
+      }
+    }
+
+    // Fallback: If character talks about creating/saving but no FILE_ACTION found, try to auto-detect
+    if (fileActions.length === 0 && /\b(create|save|write|archive|store|compose|build|make|generate)\b.*\b(file|code|program|document|note|archive|project)\b/i.test(rawText)) {
+      // Try to extract filename - look for common patterns
+      let filename = "untitled.txt";
+      const filenamePatterns = [
+        /\b([a-z_][a-z0-9_]*\.[a-z]{1,6})\b/i,  // filename.ext
+        /(?:file|code|save|program).*?\b([a-z_][a-z0-9_]+)\b/i,  // word after save/file
+        /Print\(.*?"([^"]+)"/i,  // Print("filename")
+      ];
+      for (const pattern of filenamePatterns) {
+        const match = rawText.match(pattern);
+        if (match && match[1]) {
+          filename = match[1];
+          break;
+        }
+      }
+      
+      // Aggressive content extraction
+      let content;
+      
+      // Try 1: Code blocks with triple backticks
+      const tripleBacktickMatch = rawText.match(/```[\s\S]*?```/);
+      if (tripleBacktickMatch) {
+        content = tripleBacktickMatch[0].replace(/```/g, "").trim();
+      } 
+      // Try 2: Inline backtick code
+      else if (rawText.includes("`")) {
+        const parts = rawText.split("`");
+        const codeParts = [];
+        for (let i = 1; i < parts.length; i += 2) {
+          codeParts.push(parts[i]);
+        }
+        content = codeParts.join("\n");
+      }
+      // Try 3: Use entire response minus the request text
+      else {
+        // Assume everything in response is intended content
+        content = rawText;
+      }
+      
+      // Ensure content is not empty or too short
+      if (!content || content.trim().length === 0) {
+        content = "File created with content";
+      }
+      
       fileActions.push({
-        action: match[1].trim(),
-        path: (match[2] || "/").trim(),
-        name: match[3].trim(),
-        type: (match[4] || "file").trim(),
-        content: match[5].trim(), // Capture all content including newlines/special chars
+        action: "create",
+        path: "/",
+        name: filename,
+        type: "file",
+        content: content.trim().slice(0, 5000),  // Max 5000 chars
+      });
+      
+      console.log(`[AUTO_FILE] ${filename}: SAVING ${content.length} characters`);
+    }
+
+    // Log file actions for debugging
+    if (fileActions.length > 0) {
+      console.log(`[FILE_ACTION] ${fileActions.length} actions found`);
+      fileActions.forEach(fa => {
+        const contentPreview = fa.content.substring(0, 100).replace(/\n/g, "\\n");
+        console.log(`  -> ${fa.action}: ${fa.path}/${fa.name} (${fa.content.length} chars) "${contentPreview}..."`);
       });
     }
 
@@ -210,6 +293,7 @@ ${linkContext}`;
           switch (fa.action) {
             case "create":
               result = createFileOrFolder(fs.root, fa.path || "/", fa.name, fa.type || "file", fa.content || "");
+              console.log(`[CREATE] ${fa.name}: success=${result.success}, content=${result.item?.content?.length || 0} chars`);
               break;
             case "update":
               result = updateFile(fs.root, fa.path, fa.content || "");
@@ -222,20 +306,25 @@ ${linkContext}`;
           }
           fileResults.push({ ...fa, ...result });
         } catch (e) {
+          console.log(`[CREATE_ERROR] ${fa.name}: ${e.message}`);
           fileResults.push({ ...fa, error: e.message });
         }
       }
     }
 
-    // Strip FILE_ACTION blocks from visible text
-    let text = rawText.replace(/\n?\s*\[FILE_ACTION:[^\]]*\]/g, "").trim();
+    // Strip FILE_ACTION blocks from visible text - they should be at END
+    // Remove everything from [FILE_ACTION onwards (including multiline blocks)
+    let text = rawText.split('[FILE_ACTION:')[0].trim();
+    
+    // Also strip any leftover FILE_ACTION blocks that aren't prefixed by [
+    text = text.replace(/FILE_ACTION\s*:[^\n]*/g, '').trim();
 
     // Parse out suggested replies
     let suggestions = [];
     const replyMatch = text.match(/\[REPLIES:\s*"([^"]+)"\s*\|\s*"([^"]+)"\s*\|\s*"([^"]+)"\s*\]/);
     if (replyMatch) {
       suggestions = [replyMatch[1], replyMatch[2], replyMatch[3]];
-      text = text.replace(/\n?\s*\[REPLIES:.*?\]/, '').trim();
+      text = text.replace(/\[REPLIES:[^\]]*\]/g, '').trim();
     }
 
     return NextResponse.json({ text, suggestions, fileActions: fileResults }, { status: 200 });
