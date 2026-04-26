@@ -274,18 +274,28 @@ export default function PersonaChat() {
   const [showFileExplorer, setShowFileExplorer] = useState(false);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
   const [isClient, setIsClient] = useState(false);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
   const [chatPosition, setChatPosition] = useState({ x: 0, y: 0 });
   const [isDraggingChat, setIsDraggingChat] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const thinkTimerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const chatRef = useRef(null);
   const chatHeaderRef = useRef(null);
   const avatarHeaderRef = useRef(null);
 
   // Load from localStorage only on client
   useEffect(() => {
     setIsClient(true);
+    if (typeof window !== "undefined") {
+      const coarseQuery = window.matchMedia("(pointer: coarse)");
+      const applyPointerType = () => setIsCoarsePointer(coarseQuery.matches);
+      applyPointerType();
+      coarseQuery.addEventListener("change", applyPointerType);
+      return () => coarseQuery.removeEventListener("change", applyPointerType);
+    }
+
     try {
       const stored = localStorage.getItem("persona_characters_v2");
       if (stored) {
@@ -305,6 +315,8 @@ export default function PersonaChat() {
         setThemeKey(storedTheme);
       }
     } catch {}
+
+    return undefined;
   }, []);
 
   useEffect(() => {
@@ -329,52 +341,52 @@ export default function PersonaChat() {
   useEffect(() => {
     if (!isDraggingChat) return;
 
-    const handleMouseMove = (e) => {
-      const newX = e.clientX - dragOffset.x;
-      const newY = e.clientY - dragOffset.y;
-      setChatPosition({ x: newX, y: newY });
+    const handlePointerMove = (e) => {
+      const chatWidth = chatRef.current?.offsetWidth || 0;
+      const chatHeight = chatRef.current?.offsetHeight || 0;
+      const maxX = Math.max(0, window.innerWidth - chatWidth);
+      const maxY = Math.max(0, window.innerHeight - chatHeight);
+      const nextX = Math.min(maxX, Math.max(0, e.clientX - dragOffset.x));
+      const nextY = Math.min(maxY, Math.max(0, e.clientY - dragOffset.y));
+      setChatPosition({ x: nextX, y: nextY });
     };
 
-    const handleMouseUp = () => {
+    const handlePointerUp = () => {
       setIsDraggingChat(false);
     };
 
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [isDraggingChat, dragOffset]);
 
-  const handleChatHeaderMouseDown = (e) => {
-    if (e.button !== 0) return; // only left click
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const rect = chatHeaderRef.current?.getBoundingClientRect();
-    if (rect) {
-      const offsetX = e.clientX - rect.left;
-      const offsetY = e.clientY - rect.top;
-      
-      setDragOffset({
-        x: e.clientX - chatPosition.x,
-        y: e.clientY - chatPosition.y,
-      });
-      setIsDraggingChat(true);
-    }
-  };
-
-  const handleAvatarHeaderMouseDown = (e) => {
-    if (e.button !== 0) return; // only left click
-    e.preventDefault();
-    e.stopPropagation();
-    
+  const startDrag = (clientX, clientY) => {
     setDragOffset({
-      x: e.clientX - chatPosition.x,
-      y: e.clientY - chatPosition.y,
+      x: clientX - chatPosition.x,
+      y: clientY - chatPosition.y,
     });
     setIsDraggingChat(true);
+  };
+
+  const handleChatHeaderPointerDown = (e) => {
+    if (isCoarsePointer) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startDrag(e.clientX, e.clientY);
+  };
+
+  const handleAvatarHeaderPointerDown = (e) => {
+    if (isCoarsePointer) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    startDrag(e.clientX, e.clientY);
   };
 
   const openCreate = () => {
@@ -583,7 +595,7 @@ export default function PersonaChat() {
         @keyframes p3enter{from{opacity:0;transform:translateY(8px) scale(.985);}to{opacity:1;transform:translateY(0) scale(1);}}
         @keyframes p3spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 
-        .p3app{width:100vw;height:100vh;height:100dvh;background:radial-gradient(140% 100% at 75% 0%,var(--sys-bg-flare) 0%,rgba(0,0,0,0) 55%),var(--sys-bg);position:relative;overflow:hidden;}
+  .p3app{width:100vw;height:100vh;height:100dvh;background:radial-gradient(140% 100% at 75% 0%,var(--sys-bg-flare) 0%,rgba(0,0,0,0) 55%),var(--sys-bg);position:relative;overflow:hidden;}
         .p3grid{position:fixed;inset:0;background-image:linear-gradient(var(--sys-grid) 1px,transparent 1px),linear-gradient(90deg,var(--sys-grid) 1px,transparent 1px);background-size:56px 56px;pointer-events:none;opacity:.22;}
         .p3moon-wrap{position:fixed;top:-110px;right:-120px;width:380px;height:380px;pointer-events:none;transition:opacity .9s ease;}
         .p3moon{width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 30% 30%,#b5ebff,#2f5fa8 58%,#0d2145);animation:p3glow 5s ease-in-out infinite;opacity:.55;}
@@ -600,7 +612,7 @@ export default function PersonaChat() {
         .p3theme-sel{background:rgba(7,15,34,.9);border:1px solid var(--sys-line);color:var(--sys-text);font-family:'JetBrains Mono',monospace;font-size:10px;padding:7px 12px;border-radius:999px;outline:none;cursor:pointer;}
         .p3theme-sel:focus{border-color:var(--sys-accent);box-shadow:0 0 0 2px var(--sys-accent-soft);}
 
-        .p3sel{display:flex;flex-direction:column;align-items:center;height:100vh;height:100dvh;padding:30px 26px 82px;position:relative;z-index:10;animation:p3up .6s ease forwards;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;-webkit-overflow-scrolling:touch;touch-action:pan-y;}
+  .p3sel{display:flex;flex-direction:column;align-items:center;height:100vh;height:100dvh;padding:30px 26px 82px;position:relative;z-index:10;animation:p3up .6s ease forwards;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;-webkit-overflow-scrolling:touch;touch-action:pan-y;}
         .p3sel::-webkit-scrollbar{width:6px;}
         .p3sel::-webkit-scrollbar-thumb{background:rgba(111,173,255,.35);border-radius:12px;}
         .p3title{text-align:center;margin-bottom:26px;flex-shrink:0;}
@@ -631,7 +643,7 @@ export default function PersonaChat() {
         .p3addicon{font-size:30px;color:rgba(160,222,255,.76);}
         .p3addlabel{font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(160,222,255,.76);letter-spacing:2px;text-transform:uppercase;}
 
-        .p3cr{display:flex;flex-direction:column;height:100vh;height:100dvh;position:relative;z-index:10;animation:p3up .5s ease forwards;overflow:hidden;}
+  .p3cr{display:flex;flex-direction:column;height:100vh;height:100dvh;position:relative;z-index:10;animation:p3up .5s ease forwards;overflow:hidden;}
         .p3crh{padding:0 24px;height:70px;display:flex;align-items:center;gap:16px;background:var(--sys-panel);border-bottom:1px solid var(--sys-line);flex-shrink:0;backdrop-filter:blur(14px);border-radius:0 0 24px 24px;}
         .p3crhtitle{font-family:'Orbitron',sans-serif;font-size:18px;color:#eef7ff;letter-spacing:1.5px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
         .p3crb{flex:1;overflow-y:auto;padding:24px 24px 120px;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;}
@@ -690,7 +702,7 @@ export default function PersonaChat() {
         .p3mcb{flex:1;background:rgba(16,31,63,.72);border:1px solid rgba(132,194,255,.24);color:rgba(194,228,255,.86);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;padding:10px;cursor:pointer;transition:all .2s;border-radius:999px;}
         .p3mcb:hover{border-color:rgba(156,214,255,.45);}
 
-        .p3chat{display:flex;flex-direction:column;height:100vh;position:fixed;z-index:10;animation:p3up .5s ease forwards;will-change:transform;pointer-events:auto;}
+        .p3chat{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;position:fixed;z-index:10;animation:p3up .5s ease forwards;will-change:transform;pointer-events:auto;}
         .p3chat.dragging{user-select:none;}
         .p3ch{padding:0 24px;height:76px;display:flex;align-items:center;gap:16px;background:var(--sys-panel);border-bottom:1px solid var(--sys-line);position:relative;backdrop-filter:blur(14px);flex-shrink:0;border-radius:0 0 24px 24px;cursor:grab;user-select:none;touch-action:none;}
         .p3ch::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cc),transparent);opacity:.6;}
@@ -793,6 +805,8 @@ export default function PersonaChat() {
         .p3think-dots{font-family:'Inter',sans-serif;font-size:13px;color:var(--sys-muted);animation:p3flicker 1.5s ease infinite;}
 
         @media (max-width: 760px) {
+          .p3chat { position: relative; inset: 0; transform: none !important; width: 100vw; min-height: 100dvh; }
+          .p3ch, .p3avatar-header { cursor: default; touch-action: manipulation; }
           .p3avatar-panel { display: none; }
           .p3fg { grid-template-columns: 1fr; }
           .p3chac { display: none; }
@@ -1044,16 +1058,17 @@ export default function PersonaChat() {
         {phase === "chat" && char && (
           <div 
             className={`p3chat${isDraggingChat ? " dragging" : ""}`}
+            ref={chatRef}
             style={{
-              transform: `translate(${chatPosition.x}px, ${chatPosition.y}px)`,
-              cursor: isDraggingChat ? 'grabbing' : 'default',
+              transform: isCoarsePointer ? "none" : `translate(${chatPosition.x}px, ${chatPosition.y}px)`,
+              cursor: isCoarsePointer ? "default" : isDraggingChat ? "grabbing" : "default",
             }}
           >
             <div 
               className="p3ch"
               ref={chatHeaderRef}
-              onMouseDown={handleChatHeaderMouseDown}
-              style={{ cursor: isDraggingChat ? 'grabbing' : 'grab' }}
+              onPointerDown={handleChatHeaderPointerDown}
+              style={{ cursor: isCoarsePointer ? "default" : isDraggingChat ? "grabbing" : "grab" }}
             >
               <button
                 className="p3back"
@@ -1084,7 +1099,7 @@ export default function PersonaChat() {
                 <div 
                   className="p3avatar-header"
                   ref={avatarHeaderRef}
-                  onMouseDown={handleAvatarHeaderMouseDown}
+                  onPointerDown={handleAvatarHeaderPointerDown}
                   title="Drag to move window"
                 >
                   ◆◆ AVATAR ◆◆

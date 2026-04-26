@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useState, Suspense } from "react";
+import { useRef, useMemo, useState, useEffect, Suspense } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Float, ContactShadows, Environment } from "@react-three/drei";
 import * as THREE from "three";
@@ -705,6 +705,20 @@ function GlowRing({ color }) {
 
 export default function Avatar3D({ color = "#4a8fc0", state = "idle", customization = {} }) {
   const [hasError, setHasError] = useState(false);
+  const [isMobileProfile, setIsMobileProfile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
+    const narrowScreen = window.matchMedia("(max-width: 900px)").matches;
+    const deviceMemory = navigator.deviceMemory || 0;
+    const cpuCores = navigator.hardwareConcurrency || 0;
+    const lowPowerDevice = (deviceMemory > 0 && deviceMemory <= 8) || (cpuCores > 0 && cpuCores <= 8);
+    setIsMobileProfile(coarsePointer || narrowScreen || lowPowerDevice);
+  }, []);
+
+  const dpr = isMobileProfile ? [1, 1.35] : [1, 2];
+  const particleCount = isMobileProfile ? 10 : 18;
 
   if (hasError) {
     return (
@@ -728,11 +742,11 @@ export default function Avatar3D({ color = "#4a8fc0", state = "idle", customizat
     <div style={{ width: "100%", height: "100%", position: "relative" }}>
       <Canvas
         camera={{ position: [0, 0.15, 2.2], fov: 30 }}
-        dpr={[1, 2]}
+        dpr={dpr}
         gl={{
-          antialias: true,
+          antialias: !isMobileProfile,
           alpha: true,
-          powerPreference: "high-performance",
+          powerPreference: isMobileProfile ? "default" : "high-performance",
         }}
         style={{ background: "transparent" }}
         onCreated={({ gl }) => {
@@ -757,15 +771,17 @@ export default function Avatar3D({ color = "#4a8fc0", state = "idle", customizat
           <Float speed={1.2} rotationIntensity={0.05} floatIntensity={0.15} floatingRange={[-0.02, 0.02]}>
             <RealisticBody color={color} state={state} customization={customization} />
           </Float>
-          <Particles color={color} count={18} />
+          <Particles color={color} count={particleCount} />
           <GlowRing color={color} />
           <ContactShadows position={[0, -1.3, 0]} opacity={0.3} scale={2.5} blur={3} far={2} color="#000020" />
         </Suspense>
 
         {/* Environment in its own Suspense — won't block avatar render if HDR is slow/unavailable */}
-        <Suspense fallback={null}>
-          <Environment preset="studio" environmentIntensity={0.3} />
-        </Suspense>
+        {!isMobileProfile && (
+          <Suspense fallback={null}>
+            <Environment preset="studio" environmentIntensity={0.3} />
+          </Suspense>
+        )}
       </Canvas>
 
       <div style={{

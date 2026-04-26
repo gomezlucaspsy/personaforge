@@ -57,7 +57,7 @@ const FileExplorer = ({ personaId, refreshKey, charMeta }) => {
   // Handle resizing
   useEffect(() => {
     if (!isResizing) return;
-    const handleMouseMove = (e) => {
+    const handlePointerMove = (e) => {
       const container = document.querySelector("[data-file-explorer-container]");
       if (!container) return;
       const rect = container.getBoundingClientRect();
@@ -66,12 +66,14 @@ const FileExplorer = ({ personaId, refreshKey, charMeta }) => {
         setTreeWidth(newWidth);
       }
     };
-    const handleMouseUp = () => setIsResizing(false);
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    const handlePointerUp = () => setIsResizing(false);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
     };
   }, [isResizing]);
 
@@ -303,12 +305,12 @@ const FileExplorer = ({ personaId, refreshKey, charMeta }) => {
 
       {/* Resizable Divider */}
       <div
-        onMouseDown={() => {
+        onPointerDown={() => {
           setIsResizing(true);
           setShowResizeHint(false);
         }}
-        onMouseEnter={() => !isResizing && setShowResizeHint(true)}
-        onMouseLeave={() => setShowResizeHint(false)}
+        onPointerEnter={() => !isResizing && setShowResizeHint(true)}
+        onPointerLeave={() => setShowResizeHint(false)}
         style={{
           width: "8px",
           background: isResizing
