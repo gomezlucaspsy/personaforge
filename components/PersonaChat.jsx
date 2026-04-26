@@ -572,7 +572,7 @@ export default function PersonaChat() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap');
         *{margin:0;padding:0;box-sizing:border-box;}
-        body{background:var(--sys-bg);font-family:'Inter',sans-serif;overflow:hidden;height:100vh;color:var(--sys-text);}
+        body{background:var(--sys-bg);font-family:'Inter',sans-serif;overflow:auto;min-height:100vh;min-height:100dvh;color:var(--sys-text);}
         @keyframes p3pulse{0%,100%{opacity:.45;transform:scale(.86);}50%{opacity:1;transform:scale(1);}}
         @keyframes p3up{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
         @keyframes p3in{from{opacity:0;transform:translateX(-8px);}to{opacity:1;transform:translateX(0);}}
@@ -583,7 +583,7 @@ export default function PersonaChat() {
         @keyframes p3enter{from{opacity:0;transform:translateY(8px) scale(.985);}to{opacity:1;transform:translateY(0) scale(1);}}
         @keyframes p3spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 
-        .p3app{width:100vw;height:100vh;background:radial-gradient(140% 100% at 75% 0%,var(--sys-bg-flare) 0%,rgba(0,0,0,0) 55%),var(--sys-bg);position:relative;overflow:hidden;}
+        .p3app{width:100vw;height:100vh;height:100dvh;background:radial-gradient(140% 100% at 75% 0%,var(--sys-bg-flare) 0%,rgba(0,0,0,0) 55%),var(--sys-bg);position:relative;overflow:hidden;}
         .p3grid{position:fixed;inset:0;background-image:linear-gradient(var(--sys-grid) 1px,transparent 1px),linear-gradient(90deg,var(--sys-grid) 1px,transparent 1px);background-size:56px 56px;pointer-events:none;opacity:.22;}
         .p3moon-wrap{position:fixed;top:-110px;right:-120px;width:380px;height:380px;pointer-events:none;transition:opacity .9s ease;}
         .p3moon{width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 30% 30%,#b5ebff,#2f5fa8 58%,#0d2145);animation:p3glow 5s ease-in-out infinite;opacity:.55;}
@@ -600,7 +600,7 @@ export default function PersonaChat() {
         .p3theme-sel{background:rgba(7,15,34,.9);border:1px solid var(--sys-line);color:var(--sys-text);font-family:'JetBrains Mono',monospace;font-size:10px;padding:7px 12px;border-radius:999px;outline:none;cursor:pointer;}
         .p3theme-sel:focus{border-color:var(--sys-accent);box-shadow:0 0 0 2px var(--sys-accent-soft);}
 
-        .p3sel{display:flex;flex-direction:column;align-items:center;height:100vh;padding:30px 26px 82px;position:relative;z-index:10;animation:p3up .6s ease forwards;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;}
+        .p3sel{display:flex;flex-direction:column;align-items:center;height:100vh;height:100dvh;padding:30px 26px 82px;position:relative;z-index:10;animation:p3up .6s ease forwards;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;-webkit-overflow-scrolling:touch;touch-action:pan-y;}
         .p3sel::-webkit-scrollbar{width:6px;}
         .p3sel::-webkit-scrollbar-thumb{background:rgba(111,173,255,.35);border-radius:12px;}
         .p3title{text-align:center;margin-bottom:26px;flex-shrink:0;}
@@ -631,10 +631,10 @@ export default function PersonaChat() {
         .p3addicon{font-size:30px;color:rgba(160,222,255,.76);}
         .p3addlabel{font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(160,222,255,.76);letter-spacing:2px;text-transform:uppercase;}
 
-        .p3cr{display:flex;flex-direction:column;height:100vh;position:relative;z-index:10;animation:p3up .5s ease forwards;}
+        .p3cr{display:flex;flex-direction:column;height:100vh;height:100dvh;position:relative;z-index:10;animation:p3up .5s ease forwards;overflow:hidden;}
         .p3crh{padding:0 24px;height:70px;display:flex;align-items:center;gap:16px;background:var(--sys-panel);border-bottom:1px solid var(--sys-line);flex-shrink:0;backdrop-filter:blur(14px);border-radius:0 0 24px 24px;}
         .p3crhtitle{font-family:'Orbitron',sans-serif;font-size:18px;color:#eef7ff;letter-spacing:1.5px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .p3crb{flex:1;overflow-y:auto;padding:24px;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;}
+        .p3crb{flex:1;overflow-y:auto;padding:24px 24px 120px;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;}
         .p3crb::-webkit-scrollbar{width:6px;}
         .p3crb::-webkit-scrollbar-thumb{background:rgba(111,173,255,.35);border-radius:12px;}
 
@@ -649,6 +649,11 @@ export default function PersonaChat() {
         .p3sb:disabled{opacity:.45;cursor:not-allowed;}
         .p3ss{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--sys-muted);letter-spacing:.2px;min-height:16px;}
         .p3spin{display:inline-block;width:11px;height:11px;border:2px solid rgba(120,194,255,.3);border-top-color:#9adfff;border-radius:50%;animation:p3spin .8s linear infinite;margin-right:7px;vertical-align:middle;}
+
+        .p3form-preview{height:320px;background:linear-gradient(170deg,var(--sys-panel-soft),var(--sys-panel));border:1px solid var(--sys-line);border-radius:26px;overflow:hidden;position:relative;margin-bottom:18px;}
+        .p3form-preview::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 20%,var(--sys-bg-flare),transparent 70%);pointer-events:none;z-index:0;}
+        .p3form-preview-title{position:absolute;top:12px;left:14px;right:14px;z-index:2;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1.8px;color:var(--sys-muted);text-transform:uppercase;text-align:center;}
+        .p3form-preview-body{position:absolute;inset:0;z-index:1;}
 
         .p3fg{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px;}
         .p3fgroup{display:flex;flex-direction:column;gap:6px;}
@@ -668,7 +673,7 @@ export default function PersonaChat() {
         .p3avopt{font-size:22px;cursor:pointer;padding:6px 9px;border:1px solid transparent;border-radius:999px;transition:all .15s;}
         .p3avopt.active,.p3avopt:hover{border-color:rgba(131,213,255,.64);background:rgba(76,139,255,.2);}
 
-        .p3crf{padding:16px 24px;background:var(--sys-panel);border-top:1px solid var(--sys-line);display:flex;gap:12px;flex-shrink:0;backdrop-filter:blur(14px);}
+        .p3crf{position:sticky;bottom:0;z-index:20;padding:16px 24px;background:var(--sys-panel);border-top:1px solid var(--sys-line);display:flex;gap:12px;flex-shrink:0;backdrop-filter:blur(14px);}
         .p3save{background:linear-gradient(145deg,var(--sys-accent-soft),rgba(255,255,255,.08));border:1px solid var(--sys-accent);color:var(--sys-text);font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1.6px;padding:12px 28px;cursor:pointer;transition:all .2s;border-radius:999px;text-transform:uppercase;}
         .p3save:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 10px 20px rgba(36,95,191,.32),0 0 0 1px rgba(127,216,255,.6);}
         .p3save:disabled{opacity:.42;cursor:not-allowed;}
@@ -771,7 +776,7 @@ export default function PersonaChat() {
         .p3file-modal-body{flex:1;overflow-y:auto;padding:20px;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;}
         .p3file-modal-body::-webkit-scrollbar{width:6px;}
         .p3file-modal-body::-webkit-scrollbar-thumb{background:rgba(111,173,255,.35);border-radius:12px;}
-        .p3file-toggle{position:fixed;bottom:24px;right:24px;background:rgba(5,12,30,.82);border:1px solid var(--sys-line);color:var(--sys-muted);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1.6px;padding:8px 16px;cursor:pointer;border-radius:999px;text-transform:uppercase;transition:all .2s;backdrop-filter:blur(8px);white-space:nowrap;z-index:50;}
+        .p3file-toggle{position:fixed;bottom:calc(104px + env(safe-area-inset-bottom));right:18px;background:rgba(5,12,30,.82);border:1px solid var(--sys-line);color:var(--sys-muted);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1.6px;padding:8px 16px;cursor:pointer;border-radius:999px;text-transform:uppercase;transition:all .2s;backdrop-filter:blur(8px);white-space:nowrap;z-index:30;}
         .p3file-toggle:hover,.p3file-toggle.active{border-color:var(--cc);color:var(--cc);box-shadow:0 0 12px var(--cg);}
 
 
@@ -804,6 +809,8 @@ export default function PersonaChat() {
           .p3crb,
           .p3crf,
           .p3sel { padding-left: 14px; padding-right: 14px; }
+          .p3form-preview { height: 240px; }
+          .p3file-toggle { right: 12px; bottom: calc(118px + env(safe-area-inset-bottom)); }
           .p3main { font-size: 32px; letter-spacing: 3px; }
           .p3sub { letter-spacing: 3px; }
         }
@@ -926,6 +933,17 @@ export default function PersonaChat() {
                 <div className="p3ss">
                   {isSearching && <span className="p3spin" />}
                   {searchStatus || "Enter any real or fictional person and click RESEARCH to auto-fill from web sources."}
+                </div>
+              </div>
+
+              <div className="p3form-preview">
+                <div className="p3form-preview-title">[ LIVE 3D CHARACTER PREVIEW ]</div>
+                <div className="p3form-preview-body">
+                  <Avatar3D
+                    color={form.color}
+                    state={isSearching ? "thinking" : "idle"}
+                    customization={form.customization || {}}
+                  />
                 </div>
               </div>
 
