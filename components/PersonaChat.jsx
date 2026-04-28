@@ -729,8 +729,8 @@ export default function PersonaChat() {
         .p3avatar-panel::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,var(--sys-bg-flare),transparent 70%);pointer-events:none;z-index:1;}
         .p3avatar-header{height:60px;display:flex;align-items:center;justify-content:center;padding:0 12px;background:linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01));border-bottom:1px solid var(--sys-line);cursor:grab;user-select:none;touch-action:none;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--sys-muted);letter-spacing:1.2px;text-transform:uppercase;text-align:center;flex-shrink:0;z-index:2;}
         .p3avatar-header:active{cursor:grabbing;}
-        .p3avatar-content{flex:1;position:relative;overflow:hidden;z-index:1;display:flex;flex-direction:column;}
-        .p3chat-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+        .p3avatar-content{flex:1;position:relative;overflow:hidden;z-index:1;display:flex;flex-direction:column;min-height:0;}
+        .p3chat-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;min-height:0;}
         .p3ch::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cc),transparent);opacity:.6;}
         .p3back{background:var(--sys-panel-soft);border:1px solid var(--sys-line);color:var(--sys-muted);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;padding:8px 14px;cursor:pointer;transition:all .2s;border-radius:999px;text-transform:uppercase;}
         .p3back:hover{border-color:#8bd8ff;color:#dff5ff;background:rgba(16,37,73,.9);}
@@ -743,7 +743,7 @@ export default function PersonaChat() {
         .p3dot{width:7px;height:7px;border-radius:50%;background:var(--cc);animation:p3pulse 2s ease-in-out infinite;box-shadow:0 0 8px var(--cg);}
         .p3stxt{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--sys-muted);letter-spacing:1px;text-transform:uppercase;}
         .p3stime{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--sys-muted);letter-spacing:.7px;opacity:.78;}
-        .p3msgs{flex:1;overflow-y:auto;padding:24px 24px 16px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;}
+        .p3msgs{flex:1;overflow-y:auto;padding:24px 24px 16px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;min-height:0;}
         .p3msgs::-webkit-scrollbar{width:6px;}
         .p3msgs::-webkit-scrollbar-thumb{background:rgba(111,173,255,.35);border-radius:12px;}
         .p3mr{display:flex;gap:12px;animation:p3in .24s ease forwards;max-width:90%;}
@@ -770,7 +770,7 @@ export default function PersonaChat() {
 
         .p3cust-toggle{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:10;background:rgba(5,12,30,.82);border:1px solid var(--sys-line);color:var(--sys-muted);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1.6px;padding:6px 14px;cursor:pointer;border-radius:999px;text-transform:uppercase;transition:all .2s;backdrop-filter:blur(8px);white-space:nowrap;}
         .p3cust-toggle:hover,.p3cust-toggle.open{border-color:var(--cc);color:var(--cc);box-shadow:0 0 12px var(--cg);}
-        .p3cust-panel{position:absolute;bottom:0;left:0;right:0;z-index:9;background:linear-gradient(0deg,rgba(4,10,26,.97) 0%,rgba(7,16,38,.93) 100%);border-top:1px solid var(--sys-line);padding:14px 14px 14px;backdrop-filter:blur(14px);overflow-y:auto;max-height:72%;animation:p3up .22s ease;}
+        .p3cust-panel{position:absolute;bottom:0;left:0;right:0;z-index:9;background:linear-gradient(0deg,rgba(4,10,26,.97) 0%,rgba(7,16,38,.93) 100%);border-top:1px solid var(--sys-line);padding:14px 14px 14px;backdrop-filter:blur(14px);overflow-y:auto;max-height:72%;animation:p3up .22s ease;box-sizing:border-box;}
         .p3cust-section{margin-bottom:13px;}
         .p3cust-section:last-child{margin-bottom:0;}
         .p3cust-lbl{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--sys-accent);letter-spacing:2px;text-transform:uppercase;margin-bottom:7px;}
