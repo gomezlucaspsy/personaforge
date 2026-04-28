@@ -342,13 +342,14 @@ export default function PersonaChat() {
   }, []);
 
   useEffect(() => {
-    if (selectedChar?.id === "la-destapadora" && liveMicMode) return;
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     const container = messagesContainerRef.current;
     if (container) {
       container.scrollTop = container.scrollHeight;
     }
-  }, [messages, isTyping, thinkingPhase, streamingMsgId, selectedChar?.id, liveMicMode]);
+    if (!messagesContainerRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, isTyping, thinkingPhase, streamingMsgId]);
   useEffect(() => {
     const timeoutId = setTimeout(() => setShowMoon(true), 300);
     return () => clearTimeout(timeoutId);
@@ -910,7 +911,7 @@ export default function PersonaChat() {
         .p3mcb{flex:1;background:rgba(16,31,63,.72);border:1px solid rgba(132,194,255,.24);color:rgba(194,228,255,.86);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;padding:10px;cursor:pointer;transition:all .2s;border-radius:999px;}
         .p3mcb:hover{border-color:rgba(156,214,255,.45);}
 
-        .p3chat{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;position:fixed;z-index:10;animation:p3up .5s ease forwards;will-change:transform;pointer-events:auto;}
+        .p3chat{display:flex;flex-direction:column;height:100vh;height:100dvh;position:fixed;z-index:10;animation:p3up .5s ease forwards;will-change:transform;pointer-events:auto;overflow:hidden;}
         .p3chat.live-call{inset:0;transform:none !important;}
         .p3chat.dragging{user-select:none;}
         .p3ch{padding:0 24px;height:76px;display:flex;align-items:center;gap:16px;background:var(--sys-panel);border-bottom:1px solid var(--sys-line);position:relative;backdrop-filter:blur(14px);flex-shrink:0;border-radius:0 0 24px 24px;cursor:grab;user-select:none;touch-action:none;}
@@ -923,7 +924,7 @@ export default function PersonaChat() {
         .p3chtt{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--sys-muted);letter-spacing:.6px;text-transform:uppercase;line-height:1;}
         .p3chac{font-family:'Cinzel',serif;font-size:9px;letter-spacing:2px;color:var(--cc);text-transform:uppercase;line-height:1.3;}
         .p3chat-body{display:flex;flex:1;overflow:hidden;min-height:0;}
-        .p3chat.live-call .p3chat-body{display:block;}
+        .p3chat.live-call .p3chat-body{display:flex;flex:1;min-height:0;overflow:hidden;}
         .p3chat.live-call .p3avatar-panel{display:none;}
         .p3avatar-panel{width:480px;flex-shrink:0;background:var(--sys-panel);border-right:1px solid var(--sys-line);position:relative;overflow:hidden;display:flex;flex-direction:column;}
         .p3avatar-panel::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,var(--sys-bg-flare),transparent 70%);pointer-events:none;z-index:1;}
@@ -1029,13 +1030,13 @@ export default function PersonaChat() {
         .p3think-text{font-family:'Inter',sans-serif;font-size:13px;color:var(--sys-muted);font-style:italic;}
         .p3think-dots{font-family:'Inter',sans-serif;font-size:13px;color:var(--sys-muted);animation:p3flicker 1.5s ease infinite;}
 
-        .p3call-wrap{height:100%;display:grid;grid-template-columns:1fr 340px;grid-template-rows:1fr;position:relative;overflow:hidden;}
+        .p3call-wrap{flex:1;display:grid;grid-template-columns:1fr 340px;grid-template-rows:1fr;position:relative;overflow:hidden;min-height:0;}
         .p3call-wrap::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 70% 40%,var(--sys-bg-flare),transparent 60%);pointer-events:none;z-index:0;}
-        .p3call-left{position:relative;z-index:1;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--sys-line-soft);}
-        .p3call-msgs{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;touch-action:pan-y;}
+        .p3call-left{position:relative;z-index:1;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--sys-line-soft);min-height:0;}
+        .p3call-msgs{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;touch-action:pan-y;min-height:0;}
         .p3call-msgs::-webkit-scrollbar{width:4px;}
         .p3call-msgs::-webkit-scrollbar-thumb{background:rgba(111,173,255,.25);border-radius:12px;}
-        .p3call-right{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 16px;gap:10px;}
+        .p3call-right{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 16px;gap:10px;overflow:hidden;}
         .p3call-avatar{width:100%;flex:1;min-height:0;max-height:320px;border-radius:20px;overflow:hidden;border:1px solid var(--sys-line);background:linear-gradient(170deg,var(--sys-panel-soft),var(--sys-panel));box-shadow:0 16px 36px rgba(0,0,0,.4);}
         .p3call-title{font-family:'Orbitron',sans-serif;font-size:16px;letter-spacing:1px;color:var(--sys-text);text-align:center;}
         .p3call-sub{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--sys-muted);text-align:center;}
@@ -1591,11 +1592,22 @@ export default function PersonaChat() {
                       <div className="p3call-title">{char.name} Live</div>
                       <div className="p3call-sub">{isListening ? "Listening to you" : isTyping ? "Analyzing" : isSpeaking ? "Speaking" : "Ready"}</div>
                       <div className="p3call-badge">{isListening ? "Mic Open" : "Mic Paused"} • {autoSpeak ? "Voice Reply On" : "Voice Reply Off"}</div>
+                      <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:8,width:"100%",alignItems:"center"}}>
+                        <button className={`p3mic-btn${isListening ? " live" : ""}`} onClick={toggleListening} disabled={!voiceSupported || isTyping} style={{width:"100%"}}>
+                          {isListening ? "◉ LISTENING" : "🎙 MIC"}
+                        </button>
+                        <button className="p3voice-chip" onClick={stopSpeaking} disabled={!isSpeaking} style={{width:"100%"}}>STOP SPEAKING</button>
+                        <button className={`p3voice-chip${autoSpeak ? " active" : ""}`} onClick={() => setAutoSpeak(p => !p)} style={{width:"100%"}}>
+                          {autoSpeak ? "VOICE ON" : "VOICE OFF"}
+                        </button>
+                        <button className="p3voice-chip" onClick={() => { setLiveMicMode(false); stopListening(); }} style={{width:"100%",borderColor:"var(--sys-danger)",color:"var(--sys-danger)"}}>EXIT LIVE</button>
+                      </div>
                     </div>
                   </div>
                 )}
+                {!isLiveCallUI && (
                 <div className="p3inp">
-                  <div className="p3inpl">{isLiveCallUI ? "[ LIVE CALL CONTROLS ]" : "[ COMPOSE MESSAGE ]"}</div>
+                  <div className="p3inpl">[ COMPOSE MESSAGE ]</div>
                   {char.id === "la-destapadora" && (
                     <>
                       <div className="p3voice-row">
@@ -1634,9 +1646,7 @@ export default function PersonaChat() {
                         <div className="p3voice-hint">
                           {!voiceSupported
                             ? "Mic needs HTTPS + Chrome/Edge speech recognition"
-                            : liveMicMode
-                              ? "Final voice chunks auto-send every ~1.4s (cost-safe throttle enabled)"
-                              : "Speak naturally, edit text if needed, then press SEND"}
+                            : "Speak naturally, edit text if needed, then press SEND"}
                         </div>
                       </div>
                       {voiceError && <div className="p3voice-error">{voiceError}</div>}
@@ -1662,6 +1672,7 @@ export default function PersonaChat() {
                     </button>
                   </div>
                 </div>
+                )}
               </div>
 
               {/* FileExplorer Toggle Button */}
