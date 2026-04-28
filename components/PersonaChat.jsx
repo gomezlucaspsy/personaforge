@@ -289,7 +289,17 @@ export default function PersonaChat() {
   const [chatPosition, setChatPosition] = useState({ x: 0, y: 0 });
   const [isDraggingChat, setIsDraggingChat] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [voiceSupported, setVoiceSupported] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [liveMicMode, setLiveMicMode] = useState(false);
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
   const thinkTimerRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const lastVoiceSendRef = useRef(0);
+  const startListeningRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const chatRef = useRef(null);
@@ -331,8 +341,13 @@ export default function PersonaChat() {
   }, []);
 
   useEffect(() => {
+    if (selectedChar?.id === "la-destapadora" && liveMicMode) return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping, thinkingPhase, streamingMsgId]);
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [messages, isTyping, thinkingPhase, streamingMsgId, selectedChar?.id, liveMicMode]);
   useEffect(() => {
     const timeoutId = setTimeout(() => setShowMoon(true), 300);
     return () => clearTimeout(timeoutId);
@@ -347,6 +362,13 @@ export default function PersonaChat() {
       saveTheme(themeKey);
     }
   }, [themeKey, isClient]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const supported = Boolean(SpeechRecognition && window.isSecureContext);
+    setVoiceSupported(supported);
+  }, []);
 
   // Chat drag functionality
   useEffect(() => {
@@ -514,6 +536,28 @@ export default function PersonaChat() {
     setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, streaming: false } : m)));
   }, []);
 
+  const isDestapadora = selectedChar?.id === "la-destapadora";
+
+  const stopSpeaking = useCallback(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+  }, []);
+
+  const speakAssistant = useCallback((text) => {
+    if (!isDestapadora || !autoSpeak || typeof window === "undefined" || !window.speechSynthesis || !text) return;
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
+    const utter = new SpeechSynthesisUtterance(text.slice(0, 900));
+    utter.lang = "es-AR";
+    utter.rate = 1;
+    utter.pitch = 1;
+    utter.onstart = () => setIsSpeaking(true);
+    utter.onend = () => setIsSpeaking(false);
+    utter.onerror = () => setIsSpeaking(false);
+    window.speechSynthesis.speak(utter);
+  }, [autoSpeak, isDestapadora]);
+
   const sendMessage = async (overrideInput) => {
     const msgText = typeof overrideInput === "string" ? overrideInput : input.trim();
     if (!msgText || isTyping || !selectedChar) return;
@@ -569,6 +613,8 @@ export default function PersonaChat() {
         setFileRefreshKey((k) => k + 1);
       }
 
+      speakAssistant(text);
+
       fetch("/api/history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -586,6 +632,156 @@ export default function PersonaChat() {
       setIsTyping(false);
     }
   };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+  };
+
+  const startListening = () => {
+    if (!isDestapadora) return;
+    if (typeof window === "undefined") return;
+    if (isTyping && !liveMicMode) {
+      setVoiceError("Wait for the current answer before using live mic.");
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition || !window.isSecureContext) {
+      setVoiceError("Microphone requires HTTPS and a browser with Speech Recognition.");
+      return;
+    }
+
+    // If AI is speaking, interrupt immediately when mic starts
+    if (liveMicMode && window.speechSynthesis && window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+
+    let finalBuffer = "";
+    const recognition = new SpeechRecognition();
+    recognition.lang = "es-AR";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    const STOP_COMMANDS = /\b(stop|para|pará|callate|callá|silencio|basta|enough|quiet)\b/i;
+    const wordCount = (s) => s.trim().split(/\s+/).filter(Boolean).length;
+
+    recognition.onresult = (event) => {
+      let interim = "";
+      const aiSpeaking = window.speechSynthesis && window.speechSynthesis.speaking;
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i]?.[0]?.transcript?.trim();
+        if (!transcript) continue;
+        if (event.results[i].isFinal) {
+          const confidence = event.results[i]?.[0]?.confidence ?? 1;
+          if (confidence < 0.6) continue; // tighter threshold — keyboard clicks score low
+
+          // While AI is speaking, only react to stop commands — ignore the rest (echo suppression)
+          if (aiSpeaking) {
+            if (STOP_COMMANDS.test(transcript)) {
+              window.speechSynthesis.cancel();
+              setIsSpeaking(false);
+            }
+            continue;
+          }
+
+          finalBuffer = `${finalBuffer} ${transcript}`.trim();
+          if (liveMicMode) {
+            const now = Date.now();
+            // Require 2+ words AND 10+ chars to avoid keyboard noise triggering a send
+            if (wordCount(transcript) >= 2 && transcript.length >= 10 && now - lastVoiceSendRef.current > 1400) {
+              lastVoiceSendRef.current = now;
+              sendMessage(transcript);
+              finalBuffer = "";
+              setInput((prev) => {
+                // Only clear if the current input is the voice transcript, not manually typed text
+                return prev === transcript || prev.endsWith(transcript) ? "" : prev;
+              });
+            }
+          }
+        } else {
+          interim = `${interim} ${transcript}`.trim();
+          // Only interrupt AI speech if stop command OR 2+ real words detected in interim
+          if (liveMicMode && window.speechSynthesis && window.speechSynthesis.speaking) {
+            if (STOP_COMMANDS.test(interim) || wordCount(interim) >= 2) {
+              window.speechSynthesis.cancel();
+              setIsSpeaking(false);
+            }
+          }
+        }
+      }
+      const composed = `${finalBuffer} ${interim}`.trim();
+      if (composed) setInput(composed);
+    };
+
+    recognition.onerror = (event) => {
+      if (event.error === "aborted") return;
+      if (event.error === "not-allowed") {
+        setVoiceError("Microphone permission was denied.");
+      } else if (event.error !== "no-speech") {
+        setVoiceError(`Voice error: ${event.error}`);
+      }
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      setIsListening(false);
+      if (!liveMicMode) {
+        const trimmed = finalBuffer.trim();
+        if (trimmed) setInput(trimmed);
+      }
+    };
+
+    setVoiceError("");
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  };
+
+  const toggleListening = () => {
+    if (isListening) stopListening();
+    else startListening();
+  };
+
+  const isLiveCallUI = isDestapadora && liveMicMode;
+
+
+  useEffect(() => {
+    if (!isDestapadora || !liveMicMode) return;
+    setAutoSpeak(true);
+  }, [isDestapadora, liveMicMode]);
+
+  useEffect(() => {
+    if (isDestapadora) return;
+    stopListening();
+    if (typeof window !== "undefined" && window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+  }, [isDestapadora]);
+
+  useEffect(() => {
+    if (autoSpeak) return;
+    stopSpeaking();
+  }, [autoSpeak, stopSpeaking]);
+
+  useEffect(() => {
+    return () => {
+      stopListening();
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      setIsSpeaking(false);
+    };
+  }, []);
 
   const char = selectedChar;
   const activeTheme = THEME_PRESETS[themeKey] || THEME_PRESETS.aurora;
@@ -714,6 +910,7 @@ export default function PersonaChat() {
         .p3mcb:hover{border-color:rgba(156,214,255,.45);}
 
         .p3chat{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;position:fixed;z-index:10;animation:p3up .5s ease forwards;will-change:transform;pointer-events:auto;}
+        .p3chat.live-call{inset:0;transform:none !important;}
         .p3chat.dragging{user-select:none;}
         .p3ch{padding:0 24px;height:76px;display:flex;align-items:center;gap:16px;background:var(--sys-panel);border-bottom:1px solid var(--sys-line);position:relative;backdrop-filter:blur(14px);flex-shrink:0;border-radius:0 0 24px 24px;cursor:grab;user-select:none;touch-action:none;}
         .p3ch::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,var(--cc),transparent);opacity:.6;}
@@ -724,7 +921,9 @@ export default function PersonaChat() {
         .p3chnm{font-family:'Orbitron',sans-serif;font-size:16px;color:var(--sys-text);letter-spacing:.4px;font-weight:700;line-height:1;}
         .p3chtt{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--sys-muted);letter-spacing:.6px;text-transform:uppercase;line-height:1;}
         .p3chac{font-family:'Cinzel',serif;font-size:9px;letter-spacing:2px;color:var(--cc);text-transform:uppercase;line-height:1.3;}
-        .p3chat-body{display:flex;flex:1;overflow:hidden;}
+        .p3chat-body{display:flex;flex:1;overflow:hidden;min-height:0;}
+        .p3chat.live-call .p3chat-body{display:block;}
+        .p3chat.live-call .p3avatar-panel{display:none;}
         .p3avatar-panel{width:480px;flex-shrink:0;background:var(--sys-panel);border-right:1px solid var(--sys-line);position:relative;overflow:hidden;display:flex;flex-direction:column;}
         .p3avatar-panel::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 40%,var(--sys-bg-flare),transparent 70%);pointer-events:none;z-index:1;}
         .p3avatar-header{height:60px;display:flex;align-items:center;justify-content:center;padding:0 12px;background:linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01));border-bottom:1px solid var(--sys-line);cursor:grab;user-select:none;touch-action:none;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--sys-muted);letter-spacing:1.2px;text-transform:uppercase;text-align:center;flex-shrink:0;z-index:2;}
@@ -743,7 +942,7 @@ export default function PersonaChat() {
         .p3dot{width:7px;height:7px;border-radius:50%;background:var(--cc);animation:p3pulse 2s ease-in-out infinite;box-shadow:0 0 8px var(--cg);}
         .p3stxt{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--sys-muted);letter-spacing:1px;text-transform:uppercase;}
         .p3stime{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--sys-muted);letter-spacing:.7px;opacity:.78;}
-        .p3msgs{flex:1;overflow-y:auto;padding:24px 24px 16px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;min-height:0;}
+        .p3msgs{flex:1;overflow-y:auto;padding:24px 24px 16px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin;scrollbar-color:rgba(111,173,255,.35) transparent;min-height:0;-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain;}
         .p3msgs::-webkit-scrollbar{width:6px;}
         .p3msgs::-webkit-scrollbar-thumb{background:rgba(111,173,255,.35);border-radius:12px;}
         .p3mr{display:flex;gap:12px;animation:p3in .24s ease forwards;max-width:90%;}
@@ -758,6 +957,20 @@ export default function PersonaChat() {
         .p3inp{padding:16px 24px 20px;background:var(--sys-panel);border-top:1px solid var(--sys-line);backdrop-filter:blur(14px);flex-shrink:0;border-radius:24px 24px 0 0;}
         .p3inp::before{content:'';display:block;height:1px;background:linear-gradient(90deg,transparent,var(--cc),transparent);opacity:.35;margin-bottom:14px;}
         .p3inpl{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--sys-muted);letter-spacing:1.4px;text-transform:uppercase;margin-bottom:6px;}
+        .p3voice-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+        .p3chat.live-call .p3voice-row{justify-content:center;gap:10px;margin-bottom:12px;}
+        .p3mic-btn{background:var(--sys-panel-soft);border:1px solid var(--sys-line);color:var(--sys-text);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.1px;padding:8px 12px;border-radius:999px;cursor:pointer;text-transform:uppercase;transition:all .2s;}
+        .p3chat.live-call .p3mic-btn{font-size:12px;padding:12px 18px;border-width:2px;}
+        .p3mic-btn:hover:not(:disabled){border-color:var(--cc);box-shadow:0 0 12px var(--cg);}
+        .p3mic-btn.live{border-color:#f25f6f;color:#ffd0d6;animation:p3flicker 1.1s ease-in-out infinite;}
+        .p3mic-btn:disabled{opacity:.45;cursor:not-allowed;}
+        .p3voice-chip{background:transparent;border:1px solid var(--sys-line);color:var(--sys-muted);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1px;padding:7px 10px;border-radius:999px;cursor:pointer;text-transform:uppercase;transition:all .2s;}
+        .p3chat.live-call .p3voice-chip{font-size:10px;padding:9px 12px;}
+        .p3voice-chip.active{border-color:var(--cc);color:var(--cc);background:var(--sys-accent-soft);}
+        .p3voice-chip:disabled{opacity:.45;cursor:not-allowed;}
+        .p3voice-hint{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--sys-muted);letter-spacing:.5px;opacity:.9;}
+        .p3chat.live-call .p3voice-hint{text-align:center;width:100%;font-size:10px;max-width:760px;}
+        .p3voice-error{font-family:'JetBrains Mono',monospace;font-size:10px;color:#ff9faa;letter-spacing:.4px;margin-bottom:8px;}
         .p3inpw{display:flex;gap:10px;align-items:flex-end;}
         .p3ta{flex:1;background:var(--sys-panel);border:1px solid var(--sys-line);color:var(--sys-text);font-family:'Inter',sans-serif;font-size:14px;padding:12px 15px;outline:none;resize:none;transition:border-color .2s,box-shadow .2s;border-radius:20px;min-height:48px;max-height:130px;}
         .p3ta:focus{border-color:var(--cc);box-shadow:0 0 0 3px var(--cg),inset 0 0 14px rgba(17,45,89,.36);}
@@ -815,6 +1028,21 @@ export default function PersonaChat() {
         .p3think-text{font-family:'Inter',sans-serif;font-size:13px;color:var(--sys-muted);font-style:italic;}
         .p3think-dots{font-family:'Inter',sans-serif;font-size:13px;color:var(--sys-muted);animation:p3flicker 1.5s ease infinite;}
 
+        .p3call-wrap{height:100%;display:grid;grid-template-columns:1fr 340px;grid-template-rows:1fr;position:relative;overflow:hidden;}
+        .p3call-wrap::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 70% 40%,var(--sys-bg-flare),transparent 60%);pointer-events:none;z-index:0;}
+        .p3call-left{position:relative;z-index:1;display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--sys-line-soft);}
+        .p3call-msgs{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:10px;-webkit-overflow-scrolling:touch;touch-action:pan-y;}
+        .p3call-msgs::-webkit-scrollbar{width:4px;}
+        .p3call-msgs::-webkit-scrollbar-thumb{background:rgba(111,173,255,.25);border-radius:12px;}
+        .p3call-right{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 16px;gap:10px;}
+        .p3call-avatar{width:100%;flex:1;min-height:0;max-height:320px;border-radius:20px;overflow:hidden;border:1px solid var(--sys-line);background:linear-gradient(170deg,var(--sys-panel-soft),var(--sys-panel));box-shadow:0 16px 36px rgba(0,0,0,.4);}
+        .p3call-title{font-family:'Orbitron',sans-serif;font-size:16px;letter-spacing:1px;color:var(--sys-text);text-align:center;}
+        .p3call-sub{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--sys-muted);text-align:center;}
+        .p3call-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;border:1px solid var(--sys-line);background:var(--sys-panel-soft);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1px;color:var(--sys-muted);text-transform:uppercase;text-align:center;}
+
+        .p3chat.live-call .p3inp{border-radius:26px 26px 0 0;}
+        .p3chat.live-call .p3ta{min-height:52px;}
+
         @media (max-width: 760px) {
           .p3chat { position: relative; inset: 0; transform: none !important; width: 100vw; min-height: 100dvh; }
           .p3ch, .p3avatar-header { cursor: default; touch-action: manipulation; }
@@ -838,6 +1066,13 @@ export default function PersonaChat() {
           .p3file-toggle { right: 12px; bottom: calc(118px + env(safe-area-inset-bottom)); }
           .p3main { font-size: 32px; letter-spacing: 3px; }
           .p3sub { letter-spacing: 3px; }
+          .p3voice-hint { width: 100%; }
+          .p3call-wrap{grid-template-columns:1fr;grid-template-rows:1fr auto;}
+          .p3call-right{flex-direction:row;padding:12px 16px;gap:12px;justify-content:flex-start;border-right:none;border-top:1px solid var(--sys-line-soft);max-height:140px;}
+          .p3call-avatar{width:100px;height:100px;max-height:100px;border-radius:14px;flex:0 0 100px;}
+          .p3call-title{font-size:14px;text-align:left;}
+          .p3call-sub{text-align:left;}
+          .p3call-badge{text-align:left;}
         }
       `}</style>
 
@@ -1068,7 +1303,7 @@ export default function PersonaChat() {
 
         {phase === "chat" && char && (
           <div 
-            className={`p3chat${isDraggingChat ? " dragging" : ""}`}
+            className={`p3chat${isDraggingChat ? " dragging" : ""}${isLiveCallUI ? " live-call" : ""}`}
             ref={chatRef}
             style={{
               transform: isCoarsePointer ? "none" : `translate(${chatPosition.x}px, ${chatPosition.y}px)`,
@@ -1250,63 +1485,162 @@ export default function PersonaChat() {
                 </div>
               </div>
               {/* Chat Panel */}
-              <div className="p3chat-main">
-                <div className="p3stat">
-                  <div className="p3dot" />
-                  <div className="p3stxt">FREEBASE LINK — CONNECTION ACTIVE</div>
-                  <button className="p3clrhist" style={{ marginLeft: "auto" }} onClick={clearHistory} title="Clear saved history for this character">
-                    CLEAR HISTORY
-                  </button>
-                  <div className="p3stime">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-                </div>
-                <div className="p3msgs">
-                  {messages.map((msg) => (
-                    <div key={msg.id} className={`p3mr ${msg.role}`}>
-                      {msg.role === "assistant" ? <div className="p3mav">{char.avatar}</div> : <div className="p3uav">You</div>}
-                      <div className="p3msg-content">
-                        <div className={`p3bub ${msg.role}`}>
-                          {msg.role === "assistant" && msg.streaming && msg.id === streamingMsgId ? (
-                            <StreamingText text={msg.content} onComplete={() => handleStreamComplete(msg.id)} />
-                          ) : (
-                            msg.content
-                          )}
-                        </div>
-                        {msg.timestamp && (
-                          <div className={`p3timestamp ${msg.role}`}>
-                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {(isTyping || thinkingPhase) && (
-                    <div className="p3mr assistant">
-                      <div className="p3mav">{char.avatar}</div>
-                      <div className="p3tyb">
-                        {thinkingPhase === "thinking" ? (
-                          <div className="p3thinking">
-                            <span className="p3think-text">thinking</span>
-                            <span className="p3think-dots">...</span>
-                          </div>
-                        ) : (
-                          <TypingIndicator color={char.color} />
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </div>
-                {suggestions.length > 0 && !isTyping && !streamingMsgId && (
-                  <div className="p3quick-replies">
-                    {suggestions.map((s, i) => (
-                      <button key={i} className="p3qr-btn" onClick={() => sendMessage(s)}>
-                        {s}
+              <div className={`p3chat-main${isLiveCallUI ? " live-call" : ""}`}>
+                {!isLiveCallUI && (
+                  <>
+                    <div className="p3stat">
+                      <div className="p3dot" />
+                      <div className="p3stxt">FREEBASE LINK — CONNECTION ACTIVE</div>
+                      <button className="p3clrhist" style={{ marginLeft: "auto" }} onClick={clearHistory} title="Clear saved history for this character">
+                        CLEAR HISTORY
                       </button>
-                    ))}
+                      <div className="p3stime">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                    </div>
+                    <div className="p3msgs" ref={messagesContainerRef}>
+                      {messages.map((msg) => (
+                        <div key={msg.id} className={`p3mr ${msg.role}`}>
+                          {msg.role === "assistant" ? <div className="p3mav">{char.avatar}</div> : <div className="p3uav">You</div>}
+                          <div className="p3msg-content">
+                            <div className={`p3bub ${msg.role}`}>
+                              {msg.role === "assistant" && msg.streaming && msg.id === streamingMsgId ? (
+                                <StreamingText text={msg.content} onComplete={() => handleStreamComplete(msg.id)} />
+                              ) : (
+                                msg.content
+                              )}
+                            </div>
+                            {msg.timestamp && (
+                              <div className={`p3timestamp ${msg.role}`}>
+                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {(isTyping || thinkingPhase) && (
+                        <div className="p3mr assistant">
+                          <div className="p3mav">{char.avatar}</div>
+                          <div className="p3tyb">
+                            {thinkingPhase === "thinking" ? (
+                              <div className="p3thinking">
+                                <span className="p3think-text">thinking</span>
+                                <span className="p3think-dots">...</span>
+                              </div>
+                            ) : (
+                              <TypingIndicator color={char.color} />
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+                    {suggestions.length > 0 && !isTyping && !streamingMsgId && (
+                      <div className="p3quick-replies">
+                        {suggestions.map((s, i) => (
+                          <button key={i} className="p3qr-btn" onClick={() => sendMessage(s)}>
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+                {isLiveCallUI && (
+                  <div className="p3call-wrap">
+                    {/* LEFT: chat messages */}
+                    <div className="p3call-left">
+                      <div className="p3call-msgs" ref={messagesContainerRef}>
+                        {messages.map((msg) => (
+                          <div key={msg.id} className={`p3mr ${msg.role}`}>
+                            {msg.role === "assistant" ? <div className="p3mav">{char.avatar}</div> : <div className="p3uav">You</div>}
+                            <div className="p3msg-content">
+                              <div className={`p3bub ${msg.role}`}>
+                                {msg.role === "assistant" && msg.streaming && msg.id === streamingMsgId ? (
+                                  <StreamingText text={msg.content} onComplete={() => handleStreamComplete(msg.id)} />
+                                ) : (
+                                  msg.content
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {(isTyping || thinkingPhase) && (
+                          <div className="p3mr assistant">
+                            <div className="p3mav">{char.avatar}</div>
+                            <div className="p3tyb">
+                              {thinkingPhase === "thinking" ? (
+                                <div className="p3thinking"><span className="p3think-text">thinking</span><span className="p3think-dots">...</span></div>
+                              ) : (
+                                <TypingIndicator color={char.color} />
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                      </div>
+                    </div>
+                    {/* RIGHT: avatar + status */}
+                    <div className="p3call-right">
+                      <div className="p3call-avatar">
+                        <Avatar3D
+                          color={char.color}
+                          state={isListening ? "thinking" : streamingMsgId || isSpeaking ? "streaming" : "idle"}
+                          customization={char.customization || {}}
+                        />
+                      </div>
+                      <div className="p3call-title">{char.name} Live</div>
+                      <div className="p3call-sub">{isListening ? "Listening to you" : isTyping ? "Analyzing" : isSpeaking ? "Speaking" : "Ready"}</div>
+                      <div className="p3call-badge">{isListening ? "Mic Open" : "Mic Paused"} • {autoSpeak ? "Voice Reply On" : "Voice Reply Off"}</div>
+                    </div>
                   </div>
                 )}
                 <div className="p3inp">
-                  <div className="p3inpl">[ COMPOSE MESSAGE ]</div>
+                  <div className="p3inpl">{isLiveCallUI ? "[ LIVE CALL CONTROLS ]" : "[ COMPOSE MESSAGE ]"}</div>
+                  {char.id === "la-destapadora" && (
+                    <>
+                      <div className="p3voice-row">
+                        <button
+                          className={`p3mic-btn${isListening ? " live" : ""}`}
+                          onClick={toggleListening}
+                          disabled={!voiceSupported || isTyping}
+                          title={isListening ? "Stop microphone" : "Start microphone"}
+                        >
+                          {isListening ? "◉ LISTENING" : "🎙 START MIC"}
+                        </button>
+                        <button
+                          className={`p3voice-chip${liveMicMode ? " active" : ""}`}
+                          onClick={() => setLiveMicMode((prev) => !prev)}
+                          disabled={!voiceSupported || isTyping}
+                          title="Auto-send final speech segments"
+                        >
+                          {liveMicMode ? "EXIT LIVE" : "LIVE CALL"}
+                        </button>
+                        <button
+                          className={`p3voice-chip${autoSpeak ? " active" : ""}`}
+                          onClick={() => setAutoSpeak((prev) => !prev)}
+                          disabled={!voiceSupported}
+                          title="Read replies out loud"
+                        >
+                          VOICE REPLY
+                        </button>
+                        <button
+                          className="p3voice-chip"
+                          onClick={stopSpeaking}
+                          disabled={!isSpeaking}
+                          title="Stop spoken playback"
+                        >
+                          STOP SPEAKING
+                        </button>
+                        <div className="p3voice-hint">
+                          {!voiceSupported
+                            ? "Mic needs HTTPS + Chrome/Edge speech recognition"
+                            : liveMicMode
+                              ? "Final voice chunks auto-send every ~1.4s (cost-safe throttle enabled)"
+                              : "Speak naturally, edit text if needed, then press SEND"}
+                        </div>
+                      </div>
+                      {voiceError && <div className="p3voice-error">{voiceError}</div>}
+                    </>
+                  )}
                   <div className="p3inpw">
                     <textarea
                       ref={inputRef}
