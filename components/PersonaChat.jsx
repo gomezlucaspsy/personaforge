@@ -299,6 +299,7 @@ export default function PersonaChat() {
   const recognitionRef = useRef(null);
   const lastVoiceSendRef = useRef(0);
   const startListeningRef = useRef(null);
+  const echoGuardRef = useRef(false); // true while AI speaks + 1.5s cooldown after
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -552,9 +553,9 @@ export default function PersonaChat() {
     utter.lang = "es-AR";
     utter.rate = 1;
     utter.pitch = 1;
-    utter.onstart = () => setIsSpeaking(true);
-    utter.onend = () => setIsSpeaking(false);
-    utter.onerror = () => setIsSpeaking(false);
+    utter.onstart = () => { setIsSpeaking(true); echoGuardRef.current = true; };
+    utter.onend = () => { setIsSpeaking(false); setTimeout(() => { echoGuardRef.current = false; }, 1500); };
+    utter.onerror = () => { setIsSpeaking(false); setTimeout(() => { echoGuardRef.current = false; }, 1500); };
     window.speechSynthesis.speak(utter);
   }, [autoSpeak, isDestapadora]);
 
@@ -675,7 +676,7 @@ export default function PersonaChat() {
 
     recognition.onresult = (event) => {
       let interim = "";
-      const aiSpeaking = window.speechSynthesis && window.speechSynthesis.speaking;
+      const aiSpeaking = echoGuardRef.current; // use ref — catches echo that arrives after speech ends
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const transcript = event.results[i]?.[0]?.transcript?.trim();
         if (!transcript) continue;
