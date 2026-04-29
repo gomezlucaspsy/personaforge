@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  getOrCreateFileSystem,
+  loadFileSystem,
+  saveFileSystem,
   createFileOrFolder,
   readFile,
   updateFile,
@@ -9,24 +10,31 @@ import {
 
 export async function POST(request) {
   try {
-    const { action, personaId, path, content, name, type, meta } = await request.json();
+    const { action, personaId, path, content, name, type } = await request.json();
 
     if (!personaId) {
       return NextResponse.json({ error: "Missing personaId" }, { status: 400 });
     }
 
-    const fs = getOrCreateFileSystem(personaId, meta || {});
+    const root = await loadFileSystem(personaId);
 
     if (action === "create") {
-      const result = createFileOrFolder(fs.root, path, name, type, content);
+      if (!name || name.trim().length === 0) {
+        return NextResponse.json({ error: "Invalid name: cannot be empty" }, { status: 400 });
+      }
+      if (type === "file" && (!content || content.trim().length === 0)) {
+        return NextResponse.json({ error: "File content cannot be empty" }, { status: 400 });
+      }
+      const result = createFileOrFolder(root, path || "/", name, type, content);
       if (result.error) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
+      await saveFileSystem(personaId, root);
       return NextResponse.json({ success: true, item: result.item });
     }
 
     if (action === "read") {
-      const result = readFile(fs.root, path);
+      const result = readFile(root, path);
       if (result.error) {
         return NextResponse.json({ error: result.error }, { status: 404 });
       }
@@ -34,18 +42,23 @@ export async function POST(request) {
     }
 
     if (action === "update") {
-      const result = updateFile(fs.root, path, content);
+      if (!content || content.trim().length === 0) {
+        return NextResponse.json({ error: "File content cannot be empty" }, { status: 400 });
+      }
+      const result = updateFile(root, path, content);
       if (result.error) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
+      await saveFileSystem(personaId, root);
       return NextResponse.json({ success: true, updated: true });
     }
 
     if (action === "delete") {
-      const result = deleteFileOrFolder(fs.root, path);
+      const result = deleteFileOrFolder(root, path);
       if (result.error) {
         return NextResponse.json({ error: result.error }, { status: 400 });
       }
+      await saveFileSystem(personaId, root);
       return NextResponse.json({ success: true, deleted: true });
     }
 

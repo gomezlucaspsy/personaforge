@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  getOrCreateFileSystem,
+  loadFileSystem,
+  saveFileSystem,
   createFileOrFolder,
   readFile,
   updateFile,
@@ -16,7 +17,7 @@ import {
 
 export async function POST(request) {
   try {
-    const { personaId, aiAction, details, meta } = await request.json();
+    const { personaId, aiAction } = await request.json();
 
     if (!personaId || !aiAction) {
       return NextResponse.json(
@@ -25,28 +26,37 @@ export async function POST(request) {
       );
     }
 
-    const fs = getOrCreateFileSystem(personaId, meta || {});
+    const root = await loadFileSystem(personaId);
     let result;
+    let mutated = false;
 
     switch (aiAction.action) {
       case "create":
-        result = createFileOrFolder(fs.root, aiAction.path || "/", aiAction.name, aiAction.type || "file", aiAction.content || "");
+        result = createFileOrFolder(root, aiAction.path || "/", aiAction.name, aiAction.type || "file", aiAction.content || "");
+        mutated = !!result.success;
         break;
       case "read":
-        result = readFile(fs.root, aiAction.path);
+        result = readFile(root, aiAction.path);
         break;
       case "update":
-        result = updateFile(fs.root, aiAction.path, aiAction.content || "");
+        result = updateFile(root, aiAction.path, aiAction.content || "");
+        mutated = !!result.success;
         break;
       case "delete":
-        result = deleteFileOrFolder(fs.root, aiAction.path);
+        result = deleteFileOrFolder(root, aiAction.path);
+        mutated = !!result.success;
         break;
-      case "list":
-        const tree = getFileTree(fs.root);
+      case "list": {
+        const tree = getFileTree(root);
         result = { success: true, tree: tree.join("\n") };
         break;
+      }
       default:
         return NextResponse.json({ error: `Unknown action: ${aiAction.action}` }, { status: 400 });
+    }
+
+    if (mutated) {
+      await saveFileSystem(personaId, root);
     }
 
     if (result.error) {
@@ -57,7 +67,7 @@ export async function POST(request) {
       success: true,
       action: aiAction.action,
       path: aiAction.path,
-      message: generateAIActionMessage(aiAction, details),
+      message: generateAIActionMessage(aiAction),
       result,
     });
   } catch (error) {
@@ -68,7 +78,7 @@ export async function POST(request) {
   }
 }
 
-const generateAIActionMessage = (aiAction, details) => {
+const generateAIActionMessage = (aiAction) => {
   switch (aiAction.action) {
     case "create":
       return `Created ${aiAction.type === "folder" ? "folder" : "file"} "${aiAction.name}" in ${aiAction.path}`;

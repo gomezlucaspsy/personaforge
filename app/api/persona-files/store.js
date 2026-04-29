@@ -1,28 +1,69 @@
 /**
- * Shared in-memory file system store for all persona-files routes.
- * In production, replace with a database.
+ * Redis-backed file system store for persona MyComputer.
+ * Falls back to an in-memory Map when Redis env vars are not set (local dev).
+ *
+ * Requires: UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
+ * (same credentials used by the /api/history route)
  */
 
-const fileSystemsStore = new Map();
+const FS_PREFIX = "mycomputer:";
+const TTL_SECONDS = 60 * 60 * 24 * 90; // 90-day TTL
 
-/**
- * Generate character-specific default folder structure based on their role/archetype.
- * Now returns empty root - characters start from 0
- */
-const generateDefaultFolders = (personaId, meta = {}) => {
-  // Return empty file system - characters start with nothing
-  return {};
+// In-memory fallback for local development
+const memStore = new Map();
+
+const getRedis = () => {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
+  try {
+    const { Redis } = require("@upstash/redis");
+    return new Redis({ url, token });
+  } catch {
+    return null;
+  }
 };
 
 /**
- * Initialize or get file system for a persona.
- * @param {string} personaId
- * @param {object} meta - Optional character metadata for scaffolding { name, title, archetype, systemPrompt }
+ * Load the file-system root object from Redis (or memory fallback).
+ * Always returns a plain object (never null).
  */
+export const loadFileSystem = async (personaId) => {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const data = await redis.get(`${FS_PREFIX}${personaId}`);
+      return data && typeof data === "object" ? data : {};
+    } catch {
+      return {};
+    }
+  }
+  return memStore.get(personaId) || {};
+};
+
+/**
+ * Persist the file-system root object to Redis (or memory fallback).
+ */
+export const saveFileSystem = async (personaId, root) => {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      await redis.set(`${FS_PREFIX}${personaId}`, root, { ex: TTL_SECONDS });
+    } catch {}
+  } else {
+    memStore.set(personaId, root);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Legacy synchronous helper kept for backward-compatibility with chat/route.js
+// Use loadFileSystem / saveFileSystem in all new code.
+// ---------------------------------------------------------------------------
+const fileSystemsStore = new Map();
+
 export const getOrCreateFileSystem = (personaId, meta = {}) => {
   if (!fileSystemsStore.has(personaId)) {
-    const root = generateDefaultFolders(personaId, meta);
-    fileSystemsStore.set(personaId, { root });
+    fileSystemsStore.set(personaId, { root: {} });
   }
   return fileSystemsStore.get(personaId);
 };
@@ -59,13 +100,19 @@ export const createFileOrFolder = (root, path, name, type, content = "") => {
   const folder = navigateToFolder(root, path);
   if (!folder) return { error: "Parent folder not found" };
   if (folder[name]) return { error: "Item already exists" };
+  if (!name || name.trim().length === 0) return { error: "Invalid name" };
 
   if (type === "folder") {
     folder[name] = { type: "folder", children: {} };
   } else {
+    // Validate that file content is not empty or just whitespace
+    const trimmedContent = (content || "").trim();
+    if (trimmedContent.length === 0) {
+      return { error: "File content cannot be empty" };
+    }
     folder[name] = {
       type: "file",
-      content: content || "",
+      content: content,
       created: new Date().toISOString(),
       modified: new Date().toISOString(),
     };

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
+import { mcGetTree, mcApplyAction } from "./FileExplorer";
 
 const Avatar3D = dynamic(() => import("./Avatar3D"), { ssr: false });
 const FileExplorer = dynamic(() => import("./FileExplorer"), { ssr: false });
@@ -602,6 +603,7 @@ export default function PersonaChat() {
         body: JSON.stringify({
           systemPrompt: selectedChar.systemPrompt,
           personaId: selectedChar.id,
+          fileTree: mcGetTree(selectedChar.id),
           charMeta: {
             name: selectedChar.name,
             title: selectedChar.title,
@@ -629,8 +631,11 @@ export default function PersonaChat() {
       setStreamingMsgId(aiMsgId);
       setSuggestions(newSuggestions);
 
-      // Refresh file explorer if AI performed file actions
+      // Apply file actions to localStorage (client-side, no server needed)
       if (fileActionsExecuted.length > 0) {
+        for (const fa of fileActionsExecuted) {
+          try { mcApplyAction(selectedChar.id, fa); } catch {}
+        }
         setFileRefreshKey((k) => k + 1);
       }
 
@@ -1736,20 +1741,6 @@ export default function PersonaChat() {
                           {isListening ? "◉ LISTENING" : "🎙 START MIC"}
                         </button>
                         <button
-                          className="p3voice-chip"
-                          onClick={() => imageInputRef.current?.click()}
-                          title="Upload image file"
-                        >
-                          📁 UPLOAD
-                        </button>
-                        <input 
-                          ref={imageInputRef}
-                          type="file" 
-                          accept="image/*" 
-                          style={{display: "none"}} 
-                          onChange={handleImageUpload}
-                        />
-                        <button
                           className={`p3voice-chip${liveMicMode ? " active" : ""}`}
                           onClick={() => setLiveMicMode((prev) => !prev)}
                           disabled={!voiceSupported || isTyping}
@@ -1782,6 +1773,23 @@ export default function PersonaChat() {
                       {voiceError && <div className="p3voice-error">{voiceError}</div>}
                     </>
                   )}
+                  {/* Image Upload - Available to all characters */}
+                  <div style={{marginBottom: "12px"}}>
+                    <button
+                      className="p3voice-chip"
+                      onClick={() => imageInputRef.current?.click()}
+                      title="Upload image file"
+                    >
+                      📁 UPLOAD
+                    </button>
+                    <input 
+                      ref={imageInputRef}
+                      type="file" 
+                      accept="image/*" 
+                      style={{display: "none"}} 
+                      onChange={handleImageUpload}
+                    />
+                  </div>
                   <div className="p3inpw">
                     <textarea
                       ref={inputRef}

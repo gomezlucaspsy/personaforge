@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { readFileSync } from "fs";
-import { getOrCreateFileSystem, getFileTree, createFileOrFolder, updateFile, deleteFileOrFolder } from "../persona-files/store.js";
 
 // Force-read .env.local to avoid stale system env override
 try {
@@ -114,9 +113,8 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const systemPrompt = body?.systemPrompt ? body.systemPrompt.slice(0, 1200) : ""; // Truncate to 1200 chars
-    const personaId = body?.personaId;
-    const charMeta = body?.charMeta || {};
+    const systemPrompt = body?.systemPrompt ? body.systemPrompt.slice(0, 1200) : "";
+    const fileTree = body?.fileTree || "(empty)";
     const incomingMessages = Array.isArray(body?.messages) ? body.messages : [];
 
     // Process messages with image support
@@ -165,6 +163,12 @@ export async function POST(request) {
     }
 
     const runtimeSystemPrompt = `${systemPrompt}
+
+=== MyComputer Files ===
+The user's MyComputer currently contains:
+${fileTree}
+
+You can create/update files using FILE_ACTION blocks (see below). Files are stored in the user's browser — no server needed.
 
 === IMAGE ANALYSIS CAPABILITIES ===
 When the user sends you an image (sketch, diagram, pseudocode, photo, screenshot, etc.):
@@ -256,11 +260,17 @@ I created the webcam component. Saved to MyComputer.
         const name = pipes[2].trim();
         const type = (pipes[3] || "file").trim();
         // Join remaining pipes in case content has pipes in it
-        const content = pipes.slice(4).join('|').trim();
+        const rawContent = pipes.slice(4).join('|').trim();
+        const content = rawContent.length > 0 ? rawContent : null;
         
-        if (content && content.length > 0) {
+        // Only push if content is not empty/whitespace and name is valid
+        if (content && name && type === "file") {
           fileActions.push({ action, path, name, type, content });
           console.log(`[FILE_ACTION PARSED] ${name}: ${content.length} chars`);
+        } else if (name && type === "folder") {
+          // Folders don't need content
+          fileActions.push({ action, path, name, type });
+          console.log(`[FILE_ACTION PARSED] ${name}: folder`);
         }
       }
     }
@@ -307,7 +317,9 @@ I created the webcam component. Saved to MyComputer.
       
       // Ensure content is not empty or too short
       if (!content || content.trim().length === 0) {
-        content = "File created with content";
+        console.log(`[AUTO_FILE] Skipping ${filename}: no meaningful content extracted`);
+        // Don't save empty files - only save if we have actual content
+        return;
       }
       
       fileActions.push({
@@ -321,43 +333,7 @@ I created the webcam component. Saved to MyComputer.
       console.log(`[AUTO_FILE] ${filename}: SAVING ${content.length} characters`);
     }
 
-    // Log file actions for debugging
-    if (fileActions.length > 0) {
-      console.log(`[FILE_ACTION] ${fileActions.length} actions found`);
-      fileActions.forEach(fa => {
-        const contentPreview = fa.content.substring(0, 100).replace(/\n/g, "\\n");
-        console.log(`  -> ${fa.action}: ${fa.path}/${fa.name} (${fa.content.length} chars) "${contentPreview}..."`);
-      });
-    }
-
-    // Execute file actions if we have a personaId
-    const fileResults = [];
-    if (personaId && fileActions.length > 0) {
-      const fs = getOrCreateFileSystem(personaId, charMeta);
-      for (const fa of fileActions) {
-        try {
-          let result;
-          switch (fa.action) {
-            case "create":
-              result = createFileOrFolder(fs.root, fa.path || "/", fa.name, fa.type || "file", fa.content || "");
-              console.log(`[CREATE] ${fa.name}: success=${result.success}, content=${result.item?.content?.length || 0} chars`);
-              break;
-            case "update":
-              result = updateFile(fs.root, fa.path, fa.content || "");
-              break;
-            case "delete":
-              result = deleteFileOrFolder(fs.root, fa.path);
-              break;
-            default:
-              result = { error: `Unknown action: ${fa.action}` };
-          }
-          fileResults.push({ ...fa, ...result });
-        } catch (e) {
-          console.log(`[CREATE_ERROR] ${fa.name}: ${e.message}`);
-          fileResults.push({ ...fa, error: e.message });
-        }
-      }
-    }
+    // File actions are executed client-side (localStorage) — just return them
 
     // Strip FILE_ACTION blocks from visible text - they should be at END
     // Remove everything from [FILE_ACTION onwards (including multiline blocks)
@@ -374,7 +350,7 @@ I created the webcam component. Saved to MyComputer.
       text = text.replace(/\[REPLIES:[^\]]*\]/g, '').trim();
     }
 
-    return NextResponse.json({ text, suggestions, fileActions: fileResults }, { status: 200 });
+    return NextResponse.json({ text, suggestions, fileActions }, { status: 200 });
   } catch (error) {
     return NextResponse.json({ error: error?.message || "Unexpected server error" }, { status: 500 });
   }
