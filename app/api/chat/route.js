@@ -115,6 +115,7 @@ export async function POST(request) {
     const body = await request.json();
     const systemPrompt = body?.systemPrompt ? body.systemPrompt.slice(0, 1200) : "";
     const fileTree = body?.fileTree || "(empty)";
+    const selfAnalysisDue = body?.selfAnalysisDue || false;
     const incomingMessages = Array.isArray(body?.messages) ? body.messages : [];
 
     // Process messages with image support
@@ -162,6 +163,17 @@ export async function POST(request) {
       };
     }
 
+    const selfAnalysisSection = selfAnalysisDue ? `
+
+=== SELF-ANALYSIS PROTOCOL ===
+This is message milestone #${incomingMessages.length}. After your reply, write a brief self-reflection to MyComputer.
+Use a FILE_ACTION to create or update "/self-analysis.md" with 3-5 bullet points covering:
+- Patterns you notice in the conversation so far
+- How the dialogue is evolving
+- Key themes or interests the user shows
+- One insight about yourself in this interaction
+Keep it concise. Write it in first person.` : "";
+
     const runtimeSystemPrompt = `${systemPrompt}
 
 === MyComputer Files ===
@@ -169,7 +181,7 @@ The user's MyComputer currently contains:
 ${fileTree}
 
 You can create/update files using FILE_ACTION blocks (see below). Files are stored in the user's browser — no server needed.
-
+${selfAnalysisSection}
 === IMAGE ANALYSIS CAPABILITIES ===
 When the user sends you an image (sketch, diagram, pseudocode, photo, screenshot, etc.):
 1. Carefully examine and describe what you see

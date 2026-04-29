@@ -264,6 +264,23 @@ const StreamingText = ({ text, onComplete }) => {
   return <>{words.slice(0, wordIndex).join("")}</>;
 };
 
+const CymaticsBar = ({ active, color, bars = 14 }) => (
+  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "3px", height: "32px", padding: "0 12px" }}>
+    {Array.from({ length: bars }).map((_, i) => (
+      <div key={i} style={{
+        width: "3px", borderRadius: "999px",
+        background: color || "var(--sys-accent)",
+        animation: active ? `cymw${i % 4} ${0.38 + (i % 6) * 0.09}s ease-in-out ${(i * 0.05).toFixed(2)}s infinite alternate` : "none",
+        height: active ? "auto" : "3px",
+        minHeight: "3px",
+        maxHeight: "26px",
+        opacity: active ? 1 : 0.22,
+        transition: "opacity .5s, height .2s",
+      }} />
+    ))}
+  </div>
+);
+
 export default function PersonaChat() {
   const [characters, setCharacters] = useState(DEFAULT_CHARACTERS);
   const [phase, setPhase] = useState("select");
@@ -285,6 +302,7 @@ export default function PersonaChat() {
   const [showCustomizer, setShowCustomizer] = useState(false);
   const [showFileExplorer, setShowFileExplorer] = useState(false);
   const [fileRefreshKey, setFileRefreshKey] = useState(0);
+  const [showAssembly, setShowAssembly] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
   const [chatPosition, setChatPosition] = useState({ x: 0, y: 0 });
@@ -590,12 +608,15 @@ export default function PersonaChat() {
 
     try {
       const history = messagesWithUser
-        .slice(-10) // Only send last 10 messages to save tokens
+        .slice(-10)
         .map((m) => ({ 
           role: m.role, 
           content: m.content,
           ...(m.image && { image: m.image, imageType: m.imageType })
         }));
+
+      const aiMsgsSoFar = messagesWithUser.filter((m) => m.role === "assistant").length;
+      const selfAnalysisDue = aiMsgsSoFar > 0 && aiMsgsSoFar % 8 === 0;
       
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -604,6 +625,7 @@ export default function PersonaChat() {
           systemPrompt: selectedChar.systemPrompt,
           personaId: selectedChar.id,
           fileTree: mcGetTree(selectedChar.id),
+          selfAnalysisDue,
           charMeta: {
             name: selectedChar.name,
             title: selectedChar.title,
@@ -852,6 +874,10 @@ export default function PersonaChat() {
         @keyframes p3flicker{0%,100%{opacity:1;}50%{opacity:.75;}}
         @keyframes p3enter{from{opacity:0;transform:translateY(8px) scale(.985);}to{opacity:1;transform:translateY(0) scale(1);}}
         @keyframes p3spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+        @keyframes cymw0{from{height:4px}to{height:22px}}
+        @keyframes cymw1{from{height:7px}to{height:17px}}
+        @keyframes cymw2{from{height:3px}to{height:26px}}
+        @keyframes cymw3{from{height:10px}to{height:14px}}
 
   .p3app{width:100vw;height:100vh;height:100dvh;background:radial-gradient(140% 100% at 75% 0%,var(--sys-bg-flare) 0%,rgba(0,0,0,0) 55%),var(--sys-bg);position:relative;overflow:hidden;}
         .p3grid{position:fixed;inset:0;background-image:linear-gradient(var(--sys-grid) 1px,transparent 1px),linear-gradient(90deg,var(--sys-grid) 1px,transparent 1px);background-size:56px 56px;pointer-events:none;opacity:.22;}
@@ -1407,6 +1433,15 @@ export default function PersonaChat() {
                     state={thinkingPhase === "thinking" ? "thinking" : streamingMsgId ? "streaming" : "idle"}
                     customization={char.customization || {}}
                   />
+                  {/* Cymatics waveform — animates when AI speaks or types */}
+                  <div style={{ position: "absolute", bottom: showCustomizer ? "52px" : "46px", left: 0, right: 0, zIndex: 5, display: "flex", flexDirection: "column", alignItems: "center", gap: "2px", pointerEvents: "none" }}>
+                    <CymaticsBar active={isSpeaking || !!streamingMsgId} color={char.color} />
+                    {(isSpeaking || !!streamingMsgId) && (
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "8px", letterSpacing: "2px", color: char.color, opacity: 0.7, textTransform: "uppercase" }}>
+                        {isSpeaking ? "SPEAKING" : "COMPUTING"}
+                      </div>
+                    )}
+                  </div>
                   <button
                     className={`p3cust-toggle${showCustomizer ? " open" : ""}`}
                     onClick={() => setShowCustomizer((p) => !p)}
@@ -1819,8 +1854,38 @@ export default function PersonaChat() {
                 onClick={() => setShowFileExplorer(!showFileExplorer)}
                 title="Toggle My Computer"
               >
-                {showFileExplorer ? "✕ CLOSE" : "📁 FILES"}
+                {showFileExplorer ? "\u2715 CLOSE" : "\uD83D\uDCC1 FILES"}
               </button>
+
+              {/* Assembly Panel Toggle */}
+              <button
+                className={`p3file-toggle${showAssembly ? " active" : ""}`}
+                onClick={() => setShowAssembly(!showAssembly)}
+                title="View assembled system prompt"
+                style={{ right: "auto", left: "18px" }}
+              >
+                {showAssembly ? "\u2715 SYS" : "\u25A6 SYS"}
+              </button>
+
+              {/* Assembly Modal */}
+              {showAssembly && (
+                <div className="p3file-modal" onClick={() => setShowAssembly(false)}>
+                  <div className="p3file-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "700px" }}>
+                    <div className="p3file-modal-header">
+                      <div className="p3file-modal-title">&#x25A6; Assembly View</div>
+                      <button className="p3file-modal-close" onClick={() => setShowAssembly(false)}>&#x2715;</button>
+                    </div>
+                    <div className="p3file-modal-body">
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "9px", letterSpacing: "2px", color: "var(--sys-accent)", marginBottom: "8px", textTransform: "uppercase" }}>System Prompt</div>
+                      <pre style={{ background: "var(--sys-bg)", border: "1px solid var(--sys-line)", borderRadius: "10px", padding: "14px", fontSize: "11px", color: "var(--sys-text)", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.6, marginBottom: "16px", maxHeight: "220px", overflow: "auto" }}>{char.systemPrompt || "(none)"}</pre>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "9px", letterSpacing: "2px", color: "var(--sys-accent)", marginBottom: "8px", textTransform: "uppercase" }}>MyComputer Files</div>
+                      <pre style={{ background: "var(--sys-bg)", border: "1px solid var(--sys-line)", borderRadius: "10px", padding: "14px", fontSize: "11px", color: "var(--sys-text)", whiteSpace: "pre-wrap", lineHeight: 1.6, marginBottom: "16px" }}>{mcGetTree(char.id)}</pre>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: "9px", letterSpacing: "2px", color: "var(--sys-accent)", marginBottom: "8px", textTransform: "uppercase" }}>FILE_ACTION Format</div>
+                      <pre style={{ background: "var(--sys-bg)", border: "1px solid var(--sys-line)", borderRadius: "10px", padding: "14px", fontSize: "11px", color: "var(--sys-muted)", whiteSpace: "pre-wrap", lineHeight: 1.8 }}>{"[FILE_ACTION:create|/path|filename|file|content]\n[FILE_ACTION:update|/path|filename|file|new content]\n[FILE_ACTION:delete|/path|filename|file|]"}</pre>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* FileExplorer Modal */}
               {showFileExplorer && (
