@@ -119,9 +119,32 @@ export async function POST(request) {
     const charMeta = body?.charMeta || {};
     const incomingMessages = Array.isArray(body?.messages) ? body.messages : [];
 
+    // Process messages with image support
     const messages = incomingMessages
       .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => {
+        // Handle user messages with images
+        if (m.role === "user" && m.image) {
+          return {
+            role: m.role,
+            content: [
+              {
+                type: "text",
+                text: m.content || "[Image analysis requested]"
+              },
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/jpeg",
+                  data: m.image.split(',')[1] || m.image // Strip data:image/jpeg;base64, prefix if present
+                }
+              }
+            ]
+          };
+        }
+        return { role: m.role, content: m.content };
+      });
 
     if (!systemPrompt || messages.length === 0) {
       return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
@@ -142,6 +165,20 @@ export async function POST(request) {
     }
 
     const runtimeSystemPrompt = `${systemPrompt}
+
+=== IMAGE ANALYSIS CAPABILITIES ===
+When the user sends you an image (sketch, diagram, pseudocode, photo, screenshot, etc.):
+1. Carefully examine and describe what you see
+2. If it's a pseudocode sketch or diagram:
+   - Analyze the structure and logic
+   - Identify components (language, psyche, assembly, etc.)
+   - Suggest improvements or implementations
+   - Ask clarifying questions about intent
+3. If it's a real-world photo/screenshot:
+   - Analyze the surroundings and context
+   - Suggest relevant insights or actions
+   - Connect to the conversation topic
+4. Always acknowledge that you received and analyzed the image
 
 === CRITICAL: FILE_ACTION USAGE ===
 NEVER show [FILE_ACTION] blocks to the user - they should NOT appear in chat.

@@ -306,6 +306,10 @@ export default function PersonaChat() {
   const chatRef = useRef(null);
   const chatHeaderRef = useRef(null);
   const avatarHeaderRef = useRef(null);
+  const imageInputRef = useRef(null);
+
+  // Image upload state
+  const [uploadedImage, setUploadedImage] = useState(null);
 
   // Load from localStorage only on client
   useEffect(() => {
@@ -562,9 +566,19 @@ export default function PersonaChat() {
 
   const sendMessage = async (overrideInput) => {
     const msgText = typeof overrideInput === "string" ? overrideInput : input.trim();
-    if (!msgText || isTyping || !selectedChar) return;
-    const userMsg = { role: "user", content: msgText, id: Date.now(), timestamp: Date.now() };
+    if ((!msgText && !uploadedImage) || isTyping || !selectedChar) return;
+    
+    const userMsg = { 
+      role: "user", 
+      content: msgText, 
+      id: Date.now(), 
+      timestamp: Date.now(),
+      image: uploadedImage?.data || null,
+      imageType: uploadedImage?.type || null
+    };
+    
     if (typeof overrideInput !== "string") setInput("");
+    clearImage();
     setSuggestions([]);
     const messagesWithUser = [...messages, userMsg];
     setMessages(messagesWithUser);
@@ -576,7 +590,12 @@ export default function PersonaChat() {
     try {
       const history = messagesWithUser
         .slice(-10) // Only send last 10 messages to save tokens
-        .map((m) => ({ role: m.role, content: m.content }));
+        .map((m) => ({ 
+          role: m.role, 
+          content: m.content,
+          ...(m.image && { image: m.image, imageType: m.imageType })
+        }));
+      
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -755,6 +774,31 @@ export default function PersonaChat() {
 
   const isLiveCallUI = isDestapadora && liveMicMode;
 
+
+  // Image upload functions
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith("image/")) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setUploadedImage({ type: "upload", data: event.target.result, filename: file.name });
+    };
+    reader.onerror = () => {};
+    reader.readAsDataURL(file);
+  };
+
+  const clearImage = () => {
+    setUploadedImage(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
+  };
 
   useEffect(() => {
     if (!isDestapadora || !liveMicMode) return;
@@ -1503,6 +1547,22 @@ export default function PersonaChat() {
                         <div key={msg.id} className={`p3mr ${msg.role}`}>
                           {msg.role === "assistant" ? <div className="p3mav">{char.avatar}</div> : <div className="p3uav">You</div>}
                           <div className="p3msg-content">
+                            {msg.image && (
+                              <div style={{
+                                marginBottom: "8px",
+                                maxWidth: "280px",
+                                borderRadius: "16px",
+                                overflow: "hidden",
+                                border: "1px solid var(--sys-line)",
+                                boxShadow: "0 4px 12px rgba(0,0,0,.3)"
+                              }}>
+                                <img 
+                                  src={msg.image} 
+                                  alt="Message content" 
+                                  style={{width: "100%", display: "block", objectFit: "cover"}}
+                                />
+                              </div>
+                            )}
                             <div className={`p3bub ${msg.role}`}>
                               {msg.role === "assistant" && msg.streaming && msg.id === streamingMsgId ? (
                                 <StreamingText text={msg.content} onComplete={() => handleStreamComplete(msg.id)} />
@@ -1555,6 +1615,22 @@ export default function PersonaChat() {
                           <div key={msg.id} className={`p3mr ${msg.role}`}>
                             {msg.role === "assistant" ? <div className="p3mav">{char.avatar}</div> : <div className="p3uav">You</div>}
                             <div className="p3msg-content">
+                              {msg.image && (
+                                <div style={{
+                                  marginBottom: "6px",
+                                  maxWidth: "200px",
+                                  borderRadius: "12px",
+                                  overflow: "hidden",
+                                  border: "1px solid var(--sys-line)",
+                                  boxShadow: "0 4px 12px rgba(0,0,0,.3)"
+                                }}>
+                                  <img 
+                                    src={msg.image} 
+                                    alt="Message content" 
+                                    style={{width: "100%", display: "block", objectFit: "cover"}}
+                                  />
+                                </div>
+                              )}
                               <div className={`p3bub ${msg.role}`}>
                                 {msg.role === "assistant" && msg.streaming && msg.id === streamingMsgId ? (
                                   <StreamingText text={msg.content} onComplete={() => handleStreamComplete(msg.id)} />
@@ -1608,6 +1684,46 @@ export default function PersonaChat() {
                 {!isLiveCallUI && (
                 <div className="p3inp">
                   <div className="p3inpl">[ COMPOSE MESSAGE ]</div>
+                  {uploadedImage && (
+                    <div style={{
+                      marginBottom: "12px",
+                      padding: "12px",
+                      background: "var(--sys-panel-soft)",
+                      border: "1px solid var(--sys-line)",
+                      borderRadius: "16px",
+                      display: "flex",
+                      gap: "12px",
+                      alignItems: "center"
+                    }}>
+                      <img 
+                        src={uploadedImage.data} 
+                        alt="Preview" 
+                        style={{width: "60px", height: "60px", borderRadius: "12px", objectFit: "cover"}}
+                      />
+                      <div style={{flex: 1}}>
+                        <div style={{fontSize: "11px", color: "var(--sys-muted)", textTransform: "uppercase", letterSpacing: "1px"}}>
+                          📸 Image Uploaded
+                        </div>
+                        {uploadedImage.filename && <div style={{fontSize: "12px", color: "var(--sys-text)", marginTop: "4px"}}>{uploadedImage.filename}</div>}
+                      </div>
+                      <button
+                        onClick={clearImage}
+                        style={{
+                          background: "rgba(242, 95, 111, 0.15)",
+                          border: "1px solid rgba(242, 95, 111, 0.8)",
+                          color: "#ff9faa",
+                          padding: "6px 10px",
+                          borderRadius: "999px",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          transition: "all 0.2s"
+                        }}
+                        title="Remove image"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
                   {char.id === "la-destapadora" && (
                     <>
                       <div className="p3voice-row">
@@ -1619,6 +1735,20 @@ export default function PersonaChat() {
                         >
                           {isListening ? "◉ LISTENING" : "🎙 START MIC"}
                         </button>
+                        <button
+                          className="p3voice-chip"
+                          onClick={() => imageInputRef.current?.click()}
+                          title="Upload image file"
+                        >
+                          📁 UPLOAD
+                        </button>
+                        <input 
+                          ref={imageInputRef}
+                          type="file" 
+                          accept="image/*" 
+                          style={{display: "none"}} 
+                          onChange={handleImageUpload}
+                        />
                         <button
                           className={`p3voice-chip${liveMicMode ? " active" : ""}`}
                           onClick={() => setLiveMicMode((prev) => !prev)}
@@ -1667,7 +1797,7 @@ export default function PersonaChat() {
                       }}
                       rows={1}
                     />
-                    <button className="p3send" onClick={sendMessage} disabled={isTyping || !input.trim()}>
+                    <button className="p3send" onClick={sendMessage} disabled={isTyping || (!input.trim() && !uploadedImage)}>
                       SEND
                     </button>
                   </div>
