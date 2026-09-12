@@ -148,6 +148,26 @@ const saveCharacters = (chars) => {
   } catch {}
 };
 
+// Default characters ship with a fixed, shared id (e.g. "la-destapadora") — without a
+// per-browser namespace, every visitor's chat history would land in the same server-side
+// key and everyone would read/overwrite each other's conversation. Generate a random id
+// once per browser and fold it into every /api/history call. Returns null if storage is
+// unavailable so callers can skip persistence instead of silently sharing a fallback bucket.
+const getVisitorId = () => {
+  try {
+    let id = localStorage.getItem("pf_visitor_id");
+    if (!id) {
+      id = typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem("pf_visitor_id", id);
+    }
+    return id;
+  } catch {
+    return null;
+  }
+};
+
 const TypingIndicator = ({ color }) => (
   <div style={{ display: "flex", gap: 5, padding: "12px 16px", alignItems: "center" }}>
     {[0, 1, 2].map((i) => (
@@ -413,6 +433,12 @@ export default function PersonaChat() {
   const deleteChar = (id) => {
     setCharacters((prev) => prev.filter((c) => c.id !== id));
     setDeleteConfirm(null);
+    // Removing a character from the roster used to leave its chat log behind in Redis
+    // forever — purge it too so "delete" actually deletes.
+    const visitorId = getVisitorId();
+    if (visitorId) {
+      fetch(`/api/history?charId=${id}&visitorId=${visitorId}`, { method: "DELETE" }).catch(() => {});
+    }
   };
 
   const searchAndBuild = async () => {
@@ -466,7 +492,9 @@ export default function PersonaChat() {
     setSelectedChar(char);
     let initial = [{ role: "assistant", content: char.greeting, id: Date.now() }];
     try {
-      const res = await fetch(`/api/history?charId=${char.id}`);
+      const visitorId = getVisitorId();
+      if (!visitorId) throw new Error("no visitor id");
+      const res = await fetch(`/api/history?charId=${char.id}&visitorId=${visitorId}`);
       const data = await res.json();
       if (Array.isArray(data.messages) && data.messages.length > 0) {
         initial = data.messages;
@@ -479,7 +507,10 @@ export default function PersonaChat() {
 
   const clearHistory = async () => {
     if (!selectedChar) return;
-    try { await fetch(`/api/history?charId=${selectedChar.id}`, { method: "DELETE" }); } catch {}
+    const visitorId = getVisitorId();
+    if (visitorId) {
+      try { await fetch(`/api/history?charId=${selectedChar.id}&visitorId=${visitorId}`, { method: "DELETE" }); } catch {}
+    }
     setMessages([{ role: "assistant", content: selectedChar.greeting, id: Date.now() }]);
     setSuggestions([]);
   };
@@ -684,11 +715,18 @@ export default function PersonaChat() {
       // mode) so a later text message doesn't retroactively persist a past call's turns
       // that are still sitting in the shared `messages` array.
       const persistable = updated.filter((m) => !m.fromLiveCall);
-      fetch("/api/history", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ charId: selectedChar.id, messages: persistable.map((m) => ({ role: m.role, content: m.content, id: m.id })) }),
-      }).catch(() => {});
+      const visitorId = getVisitorId();
+      if (visitorId) {
+        fetch("/api/history", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            charId: selectedChar.id,
+            visitorId,
+            messages: persistable.map((m) => ({ role: m.role, content: m.content, id: m.id })),
+          }),
+        }).catch(() => {});
+      }
     } catch (error) {
       clearTimeout(thinkTimerRef.current);
       setThinkingPhase(null);

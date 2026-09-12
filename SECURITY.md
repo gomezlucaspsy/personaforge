@@ -21,8 +21,10 @@ credited (unless you'd rather stay anonymous).
 This app is a single Anthropic-API-backed chat client with no user accounts.
 Sensitive areas to flag:
 - Leakage of `ANTHROPIC_API_KEY` or other server-side secrets
-- Ways to make `/api/*` routes read/write another user's stored data
-  (chat history, MyComputer files) without knowing their character ID
+- Ways to make `/api/*` routes read/write another visitor's chat history
+  without knowing their randomly-generated `visitorId` (see `getVisitorId()`
+  in `PersonaChat.jsx` and `/api/history`) — MyComputer files never leave the
+  browser (`localStorage`), so `/api/persona-files` is currently unused
 - XSS or injection via chat content, file names, or FILE_ACTION parsing
 - Bypasses of the CSP / security headers in `next.config.mjs`
 
