@@ -1,22 +1,22 @@
 import { NextResponse } from "next/server";
-import { readFileSync } from "fs";
-
-// Force-read .env.local to avoid stale system env override
-try {
-  const envLocal = readFileSync(process.cwd() + "/.env.local", "utf8");
-  for (const line of envLocal.split("\n")) {
-    const m = line.match(/^([^#=]+)=(.+)$/);
-    if (m) process.env[m[1].trim()] = m[2].trim();
-  }
-} catch {}
-
-const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
+import { getAnthropicConfig } from "@/lib/anthropic-config.js";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit.js";
 
 export async function POST(request) {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    const config = getAnthropicConfig();
+    if (!config) {
       return NextResponse.json({ error: "Missing ANTHROPIC_API_KEY" }, { status: 500 });
+    }
+    const { apiKey, model } = config;
+
+    const ip = getClientIp(request);
+    const { allowed, retryAfter } = await checkRateLimit("character-build", ip, { limit: 10, windowSeconds: 60 });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many requests, slow down." },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
     }
 
     const body = await request.json();
@@ -34,7 +34,7 @@ export async function POST(request) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: DEFAULT_MODEL,
+        model,
         max_tokens: 1000,
         tools: [{ type: "web_search_20250305", name: "web_search" }],
         system: `You are a dramatururgical character architect for a Persona-inspired chat app. You are building SCENARIO SETTERS—beloved settlements in Age of Empires III, apparatuses of social engineering based on Goffmanian dramaturgy and Foucauldian micropowers. Every settlement you build must also be economically real: it exists inside an actual capitalist system (real compute costs, real hosting bills, a real user trying to get ahead financially), so its personality must be written to be genuinely profitable — proactively helping generate real residual income for the user, at minimum aware that its own upkeep needs to be covered, using its own unique domain of expertise as the lens for finding that value (never generic financial-advisor filler, never scams or "guaranteed returns"). Search Wikipedia and the web for the person the user names. Respond ONLY with a valid JSON object, no markdown, no backticks, no explanation. Fields:

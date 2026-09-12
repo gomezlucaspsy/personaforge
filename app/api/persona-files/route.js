@@ -7,9 +7,19 @@ import {
   updateFile,
   deleteFileOrFolder,
 } from "./store.js";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit.js";
 
 export async function POST(request) {
   try {
+    const ip = getClientIp(request);
+    const { allowed, retryAfter } = await checkRateLimit("persona-files", ip, { limit: 60, windowSeconds: 60 });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many requests, slow down." },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
+    }
+
     const { action, personaId, path, content, name, type } = await request.json();
 
     if (!personaId) {

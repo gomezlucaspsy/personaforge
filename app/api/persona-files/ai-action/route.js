@@ -8,6 +8,7 @@ import {
   deleteFileOrFolder,
   getFileTree,
 } from "../store.js";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit.js";
 
 /**
  * POST /api/persona-files/ai-action
@@ -17,6 +18,15 @@ import {
 
 export async function POST(request) {
   try {
+    const ip = getClientIp(request);
+    const { allowed, retryAfter } = await checkRateLimit("persona-files-ai-action", ip, { limit: 60, windowSeconds: 60 });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many requests, slow down." },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
+    }
+
     const { personaId, aiAction } = await request.json();
 
     if (!personaId || !aiAction) {

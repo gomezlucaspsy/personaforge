@@ -1,16 +1,7 @@
 import { NextResponse } from "next/server";
-import { readFileSync } from "fs";
+import { getAnthropicConfig } from "@/lib/anthropic-config.js";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limit.js";
 
-// Force-read .env.local to avoid stale system env override
-try {
-  const envLocal = readFileSync(process.cwd() + "/.env.local", "utf8");
-  for (const line of envLocal.split("\n")) {
-    const m = line.match(/^([^#=]+)=(.+)$/);
-    if (m) process.env[m[1].trim()] = m[2].trim();
-  }
-} catch {}
-
-const DEFAULT_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
 const MAX_LINKS = 3;
 const MAX_SNIPPET_LENGTH = 4000;
 
@@ -107,9 +98,19 @@ const summarizeLink = async (url) => {
 
 export async function POST(request) {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    const config = getAnthropicConfig();
+    if (!config) {
       return NextResponse.json({ error: "Missing ANTHROPIC_API_KEY" }, { status: 500 });
+    }
+    const { apiKey, model } = config;
+
+    const ip = getClientIp(request);
+    const { allowed, retryAfter } = await checkRateLimit("chat", ip, { limit: 20, windowSeconds: 60 });
+    if (!allowed) {
+      return NextResponse.json(
+        { error: "Too many requests, slow down." },
+        { status: 429, headers: { "Retry-After": String(retryAfter) } }
+      );
     }
 
     const body = await request.json();
@@ -259,7 +260,7 @@ I created the webcam component. Saved to MyComputer.
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: DEFAULT_MODEL,
+        model,
         // Voice replies stay short for a live call; text mode needs real headroom —
         // 1500 was cutting off FILE_ACTION content mid-file on anything but trivial scripts.
         max_tokens: voiceMode ? 500 : 8192,
