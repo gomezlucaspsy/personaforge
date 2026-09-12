@@ -294,10 +294,16 @@ export default function PersonaChat() {
   const chatRef = useRef(null);
   const chatHeaderRef = useRef(null);
   const avatarHeaderRef = useRef(null);
-  const imageInputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  // Image upload state
-  const [uploadedImage, setUploadedImage] = useState(null);
+  // File attachment state — one attachment at a time, shape varies by `kind`:
+  //  image: { kind:"image", filename, mimeType, images:[dataUrl] }
+  //  pdf:   { kind:"pdf", filename, mimeType, document:dataUrl }
+  //  video: { kind:"video", filename, mimeType, images:[dataUrl,...] } — sampled frames, no audio/motion
+  //  text:  { kind:"text", filename, mimeType, text } — extracted from .docx/.txt/.md/.csv/.json/code files
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [fileUploadError, setFileUploadError] = useState(null);
+  const [fileUploadBusy, setFileUploadBusy] = useState(false);
 
   // Load from localStorage only on client
   useEffect(() => {
@@ -620,21 +626,23 @@ export default function PersonaChat() {
 
   const sendMessage = async (overrideInput) => {
     const msgText = typeof overrideInput === "string" ? overrideInput : input.trim();
-    if ((!msgText && !uploadedImage) || isTyping || !selectedChar) return;
-    
-    const liveFrame = !uploadedImage ? captureVideoFrame() : null;
+    if ((!msgText && !uploadedFile) || isTyping || !selectedChar) return;
+
+    const liveFrame = !uploadedFile ? captureVideoFrame() : null;
+    const isPlainImage = uploadedFile?.kind === "image";
     const userMsg = {
       role: "user",
       content: msgText,
       id: Date.now(),
       timestamp: Date.now(),
-      image: uploadedImage?.data || liveFrame || null,
-      imageType: uploadedImage?.type || (liveFrame ? "image/jpeg" : null),
+      image: (isPlainImage ? uploadedFile.images[0] : null) || liveFrame || null,
+      imageType: (isPlainImage ? uploadedFile.mimeType : null) || (liveFrame ? "image/jpeg" : null),
+      attachment: uploadedFile && !isPlainImage ? uploadedFile : null,
       fromLiveCall: liveMicMode,
     };
-    
+
     if (typeof overrideInput !== "string") setInput("");
-    clearImage();
+    clearFile();
     setSuggestions([]);
     const messagesWithUser = [...messages, userMsg];
     setMessages(messagesWithUser);
@@ -646,10 +654,11 @@ export default function PersonaChat() {
     try {
       const history = messagesWithUser
         .slice(-10)
-        .map((m) => ({ 
-          role: m.role, 
+        .map((m) => ({
+          role: m.role,
           content: m.content,
-          ...(m.image && { image: m.image, imageType: m.imageType })
+          ...(m.image && { image: m.image, imageType: m.imageType }),
+          ...(m.attachment && { attachment: m.attachment }),
         }));
 
       const aiMsgsSoFar = messagesWithUser.filter((m) => m.role === "assistant").length;
@@ -742,7 +751,7 @@ export default function PersonaChat() {
 
   // The live-call SpeechRecognition handler is set up once per call and keeps running
   // across re-renders — calling sendMessage directly from it would freeze that closure at
-  // whatever cameraOn/uploadedImage were at call-start, so turning the camera on mid-call
+  // whatever cameraOn/uploadedFile were at call-start, so turning the camera on mid-call
   // would never actually reach the AI. Route through a ref that always points at the
   // current render's sendMessage instead.
   const sendMessageRef = useRef(sendMessage);
@@ -1149,28 +1158,142 @@ export default function PersonaChat() {
     };
   }, [stopVideoCall]);
 
-  // Image upload functions
+  // File attachment functions — image upload plus PDF, .docx/text extraction, and
+  // sampled video frames, so the AI can look at more than just images.
 
-  const handleImageUpload = (e) => {
+  const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB — generous for phone photos/PDFs, caps runaway payloads
+  const MAX_TEXT_CHARS = 50000; // keep extracted document text from blowing out the context window
+  const VIDEO_FRAME_COUNT = 4;
+
+  const readAsDataURL = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.readAsDataURL(file);
+    });
+
+  const readAsArrayBuffer = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.readAsArrayBuffer(file);
+    });
+
+  const readAsText = (file) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result);
+      reader.onerror = () => reject(new Error("Could not read file"));
+      reader.readAsText(file);
+    });
+
+  // Claude has no video understanding — sample a handful of frames across the clip and
+  // send them as images instead. This misses audio and motion between frames, but gives
+  // the AI real visual content instead of nothing.
+  const extractVideoFrames = (file) =>
+    new Promise((resolve, reject) => {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.muted = true;
+      video.playsInline = true;
+      const url = URL.createObjectURL(file);
+      const frames = [];
+      let captureIndex = 0;
+      let timestamps = [];
+
+      const cleanup = () => URL.revokeObjectURL(url);
+
+      const captureNext = () => {
+        if (captureIndex >= timestamps.length) {
+          cleanup();
+          resolve(frames);
+          return;
+        }
+        video.currentTime = timestamps[captureIndex];
+      };
+
+      video.onloadedmetadata = () => {
+        const duration = video.duration || 0;
+        const count = Math.min(VIDEO_FRAME_COUNT, Math.max(1, Math.ceil(duration)));
+        timestamps = Array.from({ length: count }, (_, i) => (duration * (i + 1)) / (count + 1));
+        captureNext();
+      };
+
+      video.onseeked = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 360;
+          canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+          frames.push(canvas.toDataURL("image/jpeg", 0.8));
+        } catch {}
+        captureIndex += 1;
+        captureNext();
+      };
+
+      video.onerror = () => {
+        cleanup();
+        reject(new Error("Could not read video file"));
+      };
+
+      video.src = url;
+    });
+
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
-    if (!file.type.startsWith("image/")) {
+    setFileUploadError(null);
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setFileUploadError(`File too large (max ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB)`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setUploadedImage({ type: "upload", data: event.target.result, filename: file.name });
-    };
-    reader.onerror = () => {};
-    reader.readAsDataURL(file);
+    const name = file.name || "file";
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    setFileUploadBusy(true);
+
+    try {
+      if (file.type.startsWith("image/")) {
+        const dataUrl = await readAsDataURL(file);
+        setUploadedFile({ kind: "image", filename: name, mimeType: file.type, images: [dataUrl] });
+      } else if (file.type === "application/pdf" || ext === "pdf") {
+        const dataUrl = await readAsDataURL(file);
+        setUploadedFile({ kind: "pdf", filename: name, mimeType: "application/pdf", document: dataUrl });
+      } else if (file.type.startsWith("video/")) {
+        const frames = await extractVideoFrames(file);
+        if (frames.length === 0) throw new Error("Could not extract any frames from video");
+        setUploadedFile({ kind: "video", filename: name, mimeType: file.type, images: frames });
+      } else if (ext === "docx" || file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+        const mammoth = (await import("mammoth/mammoth.browser")).default;
+        const arrayBuffer = await readAsArrayBuffer(file);
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        setUploadedFile({ kind: "text", filename: name, mimeType: file.type, text: result.value.slice(0, MAX_TEXT_CHARS) });
+      } else if (ext === "doc") {
+        throw new Error("Old .doc format isn't supported — save as .docx and try again");
+      } else if (file.type.startsWith("audio/")) {
+        throw new Error("Audio files can't be analyzed yet — Claude has no audio understanding. Try LIVE CALL / mic dictation instead.");
+      } else {
+        // Plain text / code / csv / json / markdown, etc. — read as-is.
+        const text = await readAsText(file);
+        setUploadedFile({ kind: "text", filename: name, mimeType: file.type || "text/plain", text: text.slice(0, MAX_TEXT_CHARS) });
+      }
+    } catch (err) {
+      setFileUploadError(err?.message || "Could not read that file");
+      setUploadedFile(null);
+    } finally {
+      setFileUploadBusy(false);
+    }
   };
 
-  const clearImage = () => {
-    setUploadedImage(null);
-    if (imageInputRef.current) {
-      imageInputRef.current.value = "";
+  const clearFile = () => {
+    setUploadedFile(null);
+    setFileUploadError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
     }
   };
 
@@ -1954,11 +2077,35 @@ export default function PersonaChat() {
                                 border: "1px solid var(--sys-line)",
                                 boxShadow: "0 4px 12px rgba(0,0,0,.3)"
                               }}>
-                                <img 
-                                  src={msg.image} 
-                                  alt="Message content" 
+                                <img
+                                  src={msg.image}
+                                  alt="Message content"
                                   style={{width: "100%", display: "block", objectFit: "cover"}}
                                 />
+                              </div>
+                            )}
+                            {msg.attachment && msg.attachment.kind === "video" && (
+                              <div style={{ marginBottom: "8px", maxWidth: "280px", borderRadius: "16px", overflow: "hidden", border: "1px solid var(--sys-line)", position: "relative" }}>
+                                <img src={msg.attachment.images[0]} alt="Video frame" style={{ width: "100%", display: "block", objectFit: "cover" }} />
+                                <div style={{ position: "absolute", bottom: 6, right: 8, fontSize: "10px", background: "rgba(0,0,0,.6)", color: "#fff", padding: "2px 6px", borderRadius: "999px" }}>
+                                  🎞 {msg.attachment.images.length} frames
+                                </div>
+                              </div>
+                            )}
+                            {msg.attachment && (msg.attachment.kind === "pdf" || msg.attachment.kind === "text") && (
+                              <div style={{
+                                marginBottom: "8px",
+                                padding: "8px 12px",
+                                borderRadius: "12px",
+                                border: "1px solid var(--sys-line)",
+                                background: "var(--sys-panel-soft)",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                fontSize: "12px",
+                              }}>
+                                <span>{msg.attachment.kind === "pdf" ? "📄" : "📝"}</span>
+                                <span>{msg.attachment.filename}</span>
                               </div>
                             )}
                             <div className={`p3bub ${msg.role}`}>
@@ -2137,7 +2284,15 @@ export default function PersonaChat() {
                 {!isLiveCallUI && (
                 <div className="p3inp">
                   <div className="p3inpl">[ COMPOSE MESSAGE ]</div>
-                  {uploadedImage && (
+                  {fileUploadBusy && (
+                    <div style={{ marginBottom: "12px", fontSize: "12px", color: "var(--sys-muted)" }}>⏳ Processing file…</div>
+                  )}
+                  {fileUploadError && (
+                    <div style={{ marginBottom: "12px", padding: "10px 12px", borderRadius: "12px", border: "1px solid rgba(242,95,111,.5)", background: "rgba(242,95,111,.08)", color: "#ff9faa", fontSize: "12px" }}>
+                      {fileUploadError}
+                    </div>
+                  )}
+                  {uploadedFile && (
                     <div style={{
                       marginBottom: "12px",
                       padding: "12px",
@@ -2148,19 +2303,28 @@ export default function PersonaChat() {
                       gap: "12px",
                       alignItems: "center"
                     }}>
-                      <img 
-                        src={uploadedImage.data} 
-                        alt="Preview" 
-                        style={{width: "60px", height: "60px", borderRadius: "12px", objectFit: "cover"}}
-                      />
+                      {(uploadedFile.kind === "image" || uploadedFile.kind === "video") ? (
+                        <img
+                          src={uploadedFile.images[0]}
+                          alt="Preview"
+                          style={{width: "60px", height: "60px", borderRadius: "12px", objectFit: "cover"}}
+                        />
+                      ) : (
+                        <div style={{width: "60px", height: "60px", borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", background: "var(--sys-panel)"}}>
+                          {uploadedFile.kind === "pdf" ? "📄" : "📝"}
+                        </div>
+                      )}
                       <div style={{flex: 1}}>
                         <div style={{fontSize: "11px", color: "var(--sys-muted)", textTransform: "uppercase", letterSpacing: "1px"}}>
-                          📸 Image Uploaded
+                          {uploadedFile.kind === "image" && "📸 Image Uploaded"}
+                          {uploadedFile.kind === "video" && `🎞 Video Uploaded (${uploadedFile.images.length} frames)`}
+                          {uploadedFile.kind === "pdf" && "📄 PDF Uploaded"}
+                          {uploadedFile.kind === "text" && "📝 Document Uploaded"}
                         </div>
-                        {uploadedImage.filename && <div style={{fontSize: "12px", color: "var(--sys-text)", marginTop: "4px"}}>{uploadedImage.filename}</div>}
+                        {uploadedFile.filename && <div style={{fontSize: "12px", color: "var(--sys-text)", marginTop: "4px"}}>{uploadedFile.filename}</div>}
                       </div>
                       <button
-                        onClick={clearImage}
+                        onClick={clearFile}
                         style={{
                           background: "rgba(242, 95, 111, 0.15)",
                           border: "1px solid rgba(242, 95, 111, 0.8)",
@@ -2171,7 +2335,7 @@ export default function PersonaChat() {
                           fontSize: "11px",
                           transition: "all 0.2s"
                         }}
-                        title="Remove image"
+                        title="Remove file"
                       >
                         ✕
                       </button>
@@ -2217,21 +2381,22 @@ export default function PersonaChat() {
                     </div>
                   </div>
                   {voiceError && <div className="p3voice-error">{voiceError}</div>}
-                  {/* Image Upload - Available to all characters */}
+                  {/* File Upload — images, PDFs, video (sampled frames), .docx/text — Available to all characters */}
                   <div style={{marginBottom: "12px"}}>
                     <button
                       className="p3voice-chip"
-                      onClick={() => imageInputRef.current?.click()}
-                      title="Upload image file"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={fileUploadBusy}
+                      title="Upload image, PDF, video, or document"
                     >
                       📁 UPLOAD
                     </button>
-                    <input 
-                      ref={imageInputRef}
-                      type="file" 
-                      accept="image/*" 
-                      style={{display: "none"}} 
-                      onChange={handleImageUpload}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*,video/*,application/pdf,.pdf,.docx,.txt,.md,.csv,.json,.doc"
+                      style={{display: "none"}}
+                      onChange={handleFileUpload}
                     />
                   </div>
                   <div className="p3inpw">
@@ -2249,7 +2414,7 @@ export default function PersonaChat() {
                       }}
                       rows={1}
                     />
-                    <button className="p3send" onClick={sendMessage} disabled={isTyping || (!input.trim() && !uploadedImage)}>
+                    <button className="p3send" onClick={sendMessage} disabled={isTyping || (!input.trim() && !uploadedFile)}>
                       SEND
                     </button>
                   </div>

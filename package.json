@@ -16,6 +16,7 @@
     "@react-three/fiber": "9.5.0",
     "@upstash/redis": "1.36.3",
     "face-api.js": "0.22.2",
+    "mammoth": "1.12.3",
     "next": "15.5.25",
     "qrcode": "1.5.4",
     "react": "19.0.0",

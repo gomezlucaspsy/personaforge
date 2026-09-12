@@ -126,31 +126,46 @@ export async function POST(request) {
         ? { label: rawUserExpression.label, confidence: Math.max(0, Math.min(1, rawUserExpression.confidence)) }
         : null;
 
-    // Process messages with image support
+    const stripDataUrl = (dataUrl) => (dataUrl || "").split(",")[1] || dataUrl;
+    const MAX_ATTACHMENT_TEXT = 50000;
+
+    // Process messages with image/PDF/video-frame/document support
     const messages = incomingMessages
       .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
       .map((m) => {
-        // Handle user messages with images
-        if (m.role === "user" && m.image) {
-          return {
-            role: m.role,
-            content: [
-              {
-                type: "text",
-                text: m.content || "[Image analysis requested]"
-              },
-              {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: "image/jpeg",
-                  data: m.image.split(',')[1] || m.image // Strip data:image/jpeg;base64, prefix if present
-                }
-              }
-            ]
-          };
+        if (m.role !== "user" || (!m.image && !m.attachment)) {
+          return { role: m.role, content: m.content };
         }
-        return { role: m.role, content: m.content };
+
+        const attachment = m.attachment;
+        let text = m.content || "";
+        if (attachment?.kind === "text" && attachment.text) {
+          text += `\n\n=== ATTACHED FILE: ${attachment.filename || "document"} ===\n${attachment.text.slice(0, MAX_ATTACHMENT_TEXT)}`;
+        }
+
+        const blocks = [{ type: "text", text: text || "[Attachment analysis requested]" }];
+
+        if (m.image) {
+          blocks.push({
+            type: "image",
+            source: { type: "base64", media_type: m.imageType || "image/jpeg", data: stripDataUrl(m.image) },
+          });
+        }
+
+        if (attachment?.kind === "video" && Array.isArray(attachment.images)) {
+          for (const frame of attachment.images.slice(0, 6)) {
+            blocks.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: stripDataUrl(frame) } });
+          }
+        }
+
+        if (attachment?.kind === "pdf" && attachment.document) {
+          blocks.push({
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: stripDataUrl(attachment.document) },
+          });
+        }
+
+        return { role: m.role, content: blocks };
       });
 
     if (!systemPrompt || messages.length === 0) {
@@ -244,6 +259,18 @@ When the user sends you an image (sketch, diagram, pseudocode, photo, screenshot
    - Suggest relevant insights or actions
    - Connect to the conversation topic
 4. Always acknowledge that you received and analyzed the image
+
+=== OTHER ATTACHMENT TYPES ===
+- PDF: sent as a native document block — read it directly, including any images/diagrams inside it.
+- Video: the client has no way to send you the actual video, so it samples a handful of still
+  frames spread across the clip and sends those as images instead. You are NOT seeing motion,
+  audio, or anything between frames — treat it explicitly as "a few stills from your video" and
+  reason accordingly. Don't claim to have watched or heard the video.
+- .docx / .txt / .md / .csv / .json and similar: the extracted text is appended to the user's
+  message under a "=== ATTACHED FILE: ... ===" header — treat it as part of what they said.
+- Audio files are not supported yet (no upload path exists for them) — if the user asks why,
+  say Claude has no audio-understanding capability today and suggest LIVE CALL / mic dictation
+  (speech-to-text) instead.
 
 === CRITICAL: FILE_ACTION USAGE ===
 NEVER show [FILE_ACTION] blocks to the user - they should NOT appear in chat.
