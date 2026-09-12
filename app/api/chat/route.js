@@ -119,6 +119,12 @@ export async function POST(request) {
     const selfAnalysisDue = body?.selfAnalysisDue || false;
     const voiceMode = body?.voiceMode === true;
     const incomingMessages = Array.isArray(body?.messages) ? body.messages : [];
+    const rawUserExpression = body?.userExpression;
+    const VALID_EXPRESSIONS = new Set(["neutral", "happy", "sad", "angry", "fearful", "disgusted", "surprised"]);
+    const userExpression =
+      rawUserExpression && VALID_EXPRESSIONS.has(rawUserExpression.label) && typeof rawUserExpression.confidence === "number"
+        ? { label: rawUserExpression.label, confidence: Math.max(0, Math.min(1, rawUserExpression.confidence)) }
+        : null;
 
     // Process messages with image support
     const messages = incomingMessages
@@ -189,6 +195,21 @@ deserves more depth, give the short version now and let the user ask for more. Y
 cut off at a fixed length — if you cannot finish a full thought in 1-3 short sentences, say less,
 not more; a shorter complete answer beats a longer one that gets cut off mid-sentence.` : "";
 
+    // A client-side face-expression model (running on the user's own webcam feed, nothing
+    // sent anywhere else) gives a rough, fallible read of the user's current expression.
+    // Treat it as a soft mood cue, not a fact the character is allowed to claim to "see".
+    const expressionSection = userExpression
+      ? `
+
+=== USER'S FACIAL EXPRESSION (webcam, best-effort, may be wrong) ===
+A lightweight on-device model reads the user's current facial expression as "${userExpression.label}"
+(~${Math.round(userExpression.confidence * 100)}% confidence). Let this subtly color your tone —
+more warmth and patience if they read as sad/angry/fearful, matching energy if they read as
+happy/surprised, no change if neutral. NEVER mention that you're detecting, reading, or analyzing
+their face or expression, never state their emotion as a fact, and never let it dominate or derail
+the actual conversation — it's ambient context, not a topic.`
+      : "";
+
     const hardwareCompanionSection = `
 
 === HARDWARE COMPANION (aspirational side project, nothing built yet) ===
@@ -203,6 +224,7 @@ This is a long-term hobby idea, not something to treat as urgent or push on your
     const runtimeSystemPrompt = `${systemPrompt}
 ${hardwareCompanionSection}
 ${voiceModeSection}
+${expressionSection}
 === MyComputer Files ===
 The user's MyComputer currently contains:
 ${fileTree}

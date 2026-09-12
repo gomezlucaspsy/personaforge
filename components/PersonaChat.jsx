@@ -251,6 +251,7 @@ export default function PersonaChat() {
   const [cameraOn, setCameraOn] = useState(false);
   const [faceApiStatus, setFaceApiStatus] = useState("idle"); // idle | loading | ready
   const [detectedExpression, setDetectedExpression] = useState(null);
+  const [expressionConfidence, setExpressionConfidence] = useState(0);
   const [micLevel, setMicLevel] = useState(0); // 0..1 live mic volume, drives avatar reactivity
   const [showCallTranscript, setShowCallTranscript] = useState(false);
   const thinkTimerRef = useRef(null);
@@ -265,6 +266,8 @@ export default function PersonaChat() {
   const cameraStreamRef = useRef(null);
   const faceDetectIntervalRef = useRef(null);
   const faceapiRef = useRef(null);
+  const expressionBufferRef = useRef([]); // rolling window of raw per-frame expression score vectors, for smoothing
+  const lastExpressionInfoRef = useRef(null); // { label, confidence, scores, ts } — latest smoothed read, sent to the AI alongside the next message
   const intentionalStopRef = useRef(false);
   const speechInterruptedRef = useRef(false); // set true when a real barge-in lands mid-reply
   const inputRef = useRef(null);
@@ -620,7 +623,15 @@ export default function PersonaChat() {
 
       const aiMsgsSoFar = messagesWithUser.filter((m) => m.role === "assistant").length;
       const selfAnalysisDue = aiMsgsSoFar > 0 && aiMsgsSoFar % 8 === 0;
-      
+
+      // Only hand the AI a expression read that's still fresh — a stale one (camera off,
+      // detection stalled) would describe a mood the user may no longer be in.
+      const expressionInfo = lastExpressionInfoRef.current;
+      const userExpression =
+        expressionInfo && Date.now() - expressionInfo.ts < 4000
+          ? { label: expressionInfo.label, confidence: Number(expressionInfo.confidence.toFixed(2)) }
+          : null;
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -630,6 +641,7 @@ export default function PersonaChat() {
           fileTree: mcGetTree(selectedChar.id),
           selfAnalysisDue,
           voiceMode: liveMicMode,
+          ...(userExpression && { userExpression }),
           charMeta: {
             name: selectedChar.name,
             title: selectedChar.title,
@@ -961,7 +973,10 @@ export default function PersonaChat() {
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraOn(false);
     setDetectedExpression(null);
+    setExpressionConfidence(0);
     setFaceApiStatus("idle");
+    expressionBufferRef.current = [];
+    lastExpressionInfoRef.current = null;
   }, []);
 
   const startVideoCall = useCallback(async () => {
@@ -1005,8 +1020,39 @@ export default function PersonaChat() {
           const result = await faceapi
             .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
             .withFaceExpressions();
-          const top = result?.expressions && Object.entries(result.expressions).sort((a, b) => b[1] - a[1])[0];
-          setDetectedExpression(top && top[1] > 0.45 ? top[0] : null);
+
+          if (!result?.expressions) {
+            setDetectedExpression(null);
+            setExpressionConfidence(0);
+            lastExpressionInfoRef.current = null;
+            return;
+          }
+
+          // The model returns a full probability vector across all 7 basic expressions
+          // (neutral/happy/sad/angry/fearful/disgusted/surprised) every frame — a single
+          // frame's vector is noisy, so average it over a short rolling window instead of
+          // just thresholding the raw per-frame winner. That rides out jitter (e.g. a blink
+          // briefly reading as "surprised") without adding perceptible lag.
+          const buffer = expressionBufferRef.current;
+          buffer.push(result.expressions);
+          if (buffer.length > 5) buffer.shift();
+
+          const averaged = {};
+          for (const sample of buffer) {
+            for (const [label, score] of Object.entries(sample)) {
+              averaged[label] = (averaged[label] || 0) + score / buffer.length;
+            }
+          }
+
+          const [topLabel, topScore] = Object.entries(averaged).sort((a, b) => b[1] - a[1])[0];
+          const isConfident = topScore > 0.45;
+
+          setDetectedExpression(isConfident ? topLabel : null);
+          setExpressionConfidence(isConfident ? topScore : 0);
+          // A slightly lower bar for what we hand to the AI — still useful as a soft mood
+          // signal even when it's not confident enough to visibly repose the avatar.
+          lastExpressionInfoRef.current =
+            topScore > 0.35 ? { label: topLabel, confidence: topScore, scores: averaged, ts: Date.now() } : null;
         } catch {
           // transient detection failure — skip this tick
         }
@@ -1951,7 +1997,11 @@ export default function PersonaChat() {
                         <div className="p3cam-pip">
                           <video ref={videoRef} className="p3cam-video" playsInline muted autoPlay />
                           <div className="p3cam-tag">
-                            {faceApiStatus === "loading" ? "loading…" : detectedExpression || "you"}
+                            {faceApiStatus === "loading"
+                              ? "loading…"
+                              : detectedExpression
+                              ? `${detectedExpression} ${Math.round(expressionConfidence * 100)}%`
+                              : "you"}
                           </div>
                         </div>
                       )}
