@@ -168,6 +168,19 @@ const getVisitorId = () => {
   }
 };
 
+// Text stand-in for a message's image/attachment, used wherever the binary data is dropped
+// (older history turns, persisted history). Keeps attachment-only messages non-empty,
+// which Anthropic requires.
+const describeWithAttachment = (m) => {
+  const label = m.attachment
+    ? `[Attached ${m.attachment.kind}: ${m.attachment.filename || "file"}]`
+    : m.image
+      ? "[Attached image]"
+      : "";
+  if (!label) return m.content;
+  return m.content ? `${m.content}\n${label}` : label;
+};
+
 const TypingIndicator = ({ color }) => (
   <div style={{ display: "flex", gap: 5, padding: "12px 16px", alignItems: "center" }}>
     {[0, 1, 2].map((i) => (
@@ -652,14 +665,26 @@ export default function PersonaChat() {
     thinkTimerRef.current = setTimeout(() => setThinkingPhase("typing"), 1200 + Math.random() * 800);
 
     try {
-      const history = messagesWithUser
-        .slice(-10)
-        .map((m) => ({
-          role: m.role,
-          content: m.content,
-          ...(m.image && { image: m.image, imageType: m.imageType }),
-          ...(m.attachment && { attachment: m.attachment }),
-        }));
+      // Only the newest user turn carries binary data — re-sending every earlier image/PDF
+      // on each turn would blow past Vercel's 4.5MB request body limit within a few uploads.
+      const recent = messagesWithUser.slice(-10);
+      const latestUserIdx = recent.findLastIndex((m) => m.role === "user");
+      const history = recent.map((m, i) => {
+        if (i === latestUserIdx) {
+          return {
+            role: m.role,
+            content: m.content,
+            ...(m.image && { image: m.image, imageType: m.imageType }),
+            ...(m.attachment && { attachment: m.attachment }),
+          };
+        }
+        // Extracted document text is small (capped at MAX_TEXT_CHARS) — keep sending it so
+        // follow-up questions about the doc still work.
+        if (m.attachment?.kind === "text") {
+          return { role: m.role, content: m.content, attachment: m.attachment };
+        }
+        return { role: m.role, content: describeWithAttachment(m) };
+      });
 
       const aiMsgsSoFar = messagesWithUser.filter((m) => m.role === "assistant").length;
       const selfAnalysisDue = aiMsgsSoFar > 0 && aiMsgsSoFar % 8 === 0;
@@ -732,7 +757,7 @@ export default function PersonaChat() {
           body: JSON.stringify({
             charId: selectedChar.id,
             visitorId,
-            messages: persistable.map((m) => ({ role: m.role, content: m.content, id: m.id })),
+            messages: persistable.map((m) => ({ role: m.role, content: describeWithAttachment(m), id: m.id })),
           }),
         }).catch(() => {});
       }
@@ -1161,9 +1186,48 @@ export default function PersonaChat() {
   // File attachment functions — image upload plus PDF, .docx/text extraction, and
   // sampled video frames, so the AI can look at more than just images.
 
-  const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB — generous for phone photos/PDFs, caps runaway payloads
+  const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB — images/videos get shrunk client-side, so only the source is this big
+  // PDFs go up as-is; base64 adds ~33%, and Vercel rejects request bodies over 4.5MB.
+  const MAX_PDF_BYTES = 3 * 1024 * 1024;
   const MAX_TEXT_CHARS = 50000; // keep extracted document text from blowing out the context window
   const VIDEO_FRAME_COUNT = 4;
+  const MAX_IMAGE_DIM = 1568; // Anthropic downsizes anything larger anyway
+  const VIDEO_SEEK_TIMEOUT_MS = 8000;
+
+  // Draw a source (image or video frame) onto a canvas no larger than MAX_IMAGE_DIM and
+  // export it as JPEG — keeps phone photos (often 5-10MB, sometimes HEIC-ish formats
+  // Anthropic won't accept) small and in a supported format.
+  const toScaledJpeg = (source, width, height, quality = 0.85) => {
+    const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff"; // JPEG has no alpha — transparent PNGs would otherwise turn black
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", quality);
+  };
+
+  const imageFileToJpeg = (file) =>
+    new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          resolve(toScaledJpeg(img, img.naturalWidth, img.naturalHeight));
+        } catch (err) {
+          reject(err);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Could not read that image format"));
+      };
+      img.src = url;
+    });
 
   const readAsDataURL = (file) =>
     new Promise((resolve, reject) => {
@@ -1202,20 +1266,42 @@ export default function PersonaChat() {
       const frames = [];
       let captureIndex = 0;
       let timestamps = [];
+      let seekTimer = null;
+      let settled = false;
 
-      const cleanup = () => URL.revokeObjectURL(url);
+      const cleanup = () => {
+        clearTimeout(seekTimer);
+        video.onloadedmetadata = video.onseeked = video.onerror = null;
+        video.removeAttribute("src");
+        video.load();
+        URL.revokeObjectURL(url);
+      };
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (err) reject(err);
+        else resolve(frames);
+      };
 
       const captureNext = () => {
         if (captureIndex >= timestamps.length) {
-          cleanup();
-          resolve(frames);
+          finish();
           return;
         }
+        // Some codecs never fire `seeked` — fail instead of leaving the upload spinner stuck.
+        clearTimeout(seekTimer);
+        seekTimer = setTimeout(() => finish(new Error("Video took too long to read")), VIDEO_SEEK_TIMEOUT_MS);
         video.currentTime = timestamps[captureIndex];
       };
 
       video.onloadedmetadata = () => {
-        const duration = video.duration || 0;
+        const duration = video.duration;
+        // Streamed/recorded webm often reports Infinity or NaN — can't place frames without a length.
+        if (!Number.isFinite(duration) || duration <= 0) {
+          finish(new Error("Could not determine video length"));
+          return;
+        }
         const count = Math.min(VIDEO_FRAME_COUNT, Math.max(1, Math.ceil(duration)));
         timestamps = Array.from({ length: count }, (_, i) => (duration * (i + 1)) / (count + 1));
         captureNext();
@@ -1223,20 +1309,13 @@ export default function PersonaChat() {
 
       video.onseeked = () => {
         try {
-          const canvas = document.createElement("canvas");
-          canvas.width = video.videoWidth || 640;
-          canvas.height = video.videoHeight || 360;
-          canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-          frames.push(canvas.toDataURL("image/jpeg", 0.8));
+          frames.push(toScaledJpeg(video, video.videoWidth || 640, video.videoHeight || 360, 0.8));
         } catch {}
         captureIndex += 1;
         captureNext();
       };
 
-      video.onerror = () => {
-        cleanup();
-        reject(new Error("Could not read video file"));
-      };
+      video.onerror = () => finish(new Error("Could not read video file"));
 
       video.src = url;
     });
@@ -1258,9 +1337,12 @@ export default function PersonaChat() {
 
     try {
       if (file.type.startsWith("image/")) {
-        const dataUrl = await readAsDataURL(file);
-        setUploadedFile({ kind: "image", filename: name, mimeType: file.type, images: [dataUrl] });
+        const dataUrl = await imageFileToJpeg(file);
+        setUploadedFile({ kind: "image", filename: name, mimeType: "image/jpeg", images: [dataUrl] });
       } else if (file.type === "application/pdf" || ext === "pdf") {
+        if (file.size > MAX_PDF_BYTES) {
+          throw new Error(`PDF too large (max ${MAX_PDF_BYTES / (1024 * 1024)}MB)`);
+        }
         const dataUrl = await readAsDataURL(file);
         setUploadedFile({ kind: "pdf", filename: name, mimeType: "application/pdf", document: dataUrl });
       } else if (file.type.startsWith("video/")) {

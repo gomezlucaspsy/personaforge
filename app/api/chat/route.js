@@ -1,3 +1,5 @@
+import dns from "node:dns/promises";
+import net from "node:net";
 import { NextResponse } from "next/server";
 import { getAnthropicConfig } from "@/lib/anthropic-config.js";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limit.js";
@@ -5,9 +7,15 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit.js";
 const MAX_LINKS = 3;
 const MAX_SNIPPET_LENGTH = 4000;
 
+// Attachment messages carry content as a block array — pull text out of those too.
+const messageText = (content) =>
+  Array.isArray(content)
+    ? content.filter((block) => block.type === "text").map((block) => block.text).join("\n")
+    : content;
+
 const extractUrls = (messages) => {
   const urlRegex = /https?:\/\/[^\s)\]}>"']+/gi;
-  const allText = messages.map((message) => message.content).join("\n");
+  const allText = messages.map((message) => messageText(message.content)).join("\n");
   const matches = allText.match(urlRegex) || [];
   return [...new Set(matches)].slice(0, MAX_LINKS);
 };
@@ -32,20 +40,60 @@ const parseGitHubPath = (urlString) => {
   }
 };
 
+const MAX_REDIRECTS = 3;
+
+const isPrivateAddress = (address) => {
+  if (net.isIPv4(address)) {
+    const [a, b] = address.split(".").map(Number);
+    return (
+      a === 0 || a === 10 || a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) || // carrier-grade NAT
+      (a === 169 && b === 254) ||           // link-local / cloud metadata
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      a >= 224
+    );
+  }
+  const v6 = address.toLowerCase();
+  if (v6.startsWith("::ffff:")) return isPrivateAddress(v6.slice(7));
+  return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || v6.startsWith("fe80");
+};
+
+// Links come straight from chat messages, so anyone can make the server fetch anything —
+// refuse non-http(s) schemes and hosts that resolve to internal/metadata addresses.
+const assertPublicUrl = async (urlString) => {
+  const url = new URL(urlString);
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Unsupported URL scheme");
+  const host = url.hostname.replace(/^\[|\]$/g, "");
+  const addresses = net.isIP(host) ? [{ address: host }] : await dns.lookup(host, { all: true });
+  if (addresses.length === 0 || addresses.some(({ address }) => isPrivateAddress(address))) {
+    throw new Error("Blocked non-public address");
+  }
+};
+
 const fetchWithTimeout = async (url, options = {}, timeoutMs = 10000) => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "robotforge-link-analyzer",
-        Accept: "application/json, text/plain, text/html;q=0.9,*/*;q=0.8",
-        ...(options.headers || {}),
-      },
-    });
-    return response;
+    // Follow redirects by hand so every hop gets the same public-address check.
+    let currentUrl = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      await assertPublicUrl(currentUrl);
+      const response = await fetch(currentUrl, {
+        ...options,
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "robotforge-link-analyzer",
+          Accept: "application/json, text/plain, text/html;q=0.9,*/*;q=0.8",
+          ...(options.headers || {}),
+        },
+      });
+      const location = response.headers.get("location");
+      if (response.status < 300 || response.status >= 400 || !location) return response;
+      currentUrl = new URL(location, currentUrl).toString();
+    }
+    throw new Error("Too many redirects");
   } finally {
     clearTimeout(timeoutId);
   }
@@ -127,6 +175,7 @@ export async function POST(request) {
         : null;
 
     const stripDataUrl = (dataUrl) => (dataUrl || "").split(",")[1] || dataUrl;
+    const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
     const MAX_ATTACHMENT_TEXT = 50000;
 
     // Process messages with image/PDF/video-frame/document support
@@ -148,7 +197,7 @@ export async function POST(request) {
         if (m.image) {
           blocks.push({
             type: "image",
-            source: { type: "base64", media_type: m.imageType || "image/jpeg", data: stripDataUrl(m.image) },
+            source: { type: "base64", media_type: SUPPORTED_IMAGE_TYPES.has(m.imageType) ? m.imageType : "image/jpeg", data: stripDataUrl(m.image) },
           });
         }
 
@@ -179,10 +228,13 @@ export async function POST(request) {
 
     // Add link context to the last user message if links are found
     const finalMessages = [...messages];
-    if (linkContext && finalMessages.length > 0 && finalMessages[finalMessages.length - 1].role === "user") {
+    const last = finalMessages[finalMessages.length - 1];
+    if (linkContext && last?.role === "user") {
       finalMessages[finalMessages.length - 1] = {
-        ...finalMessages[finalMessages.length - 1],
-        content: finalMessages[finalMessages.length - 1].content + linkContext,
+        ...last,
+        content: Array.isArray(last.content)
+          ? [...last.content, { type: "text", text: linkContext }]
+          : last.content + linkContext,
       };
     }
 
