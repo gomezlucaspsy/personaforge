@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit AI code review config for PersonaForge / RobotForge.
+# Requires the CodeRabbit GitHub App installed on gomezlucaspsy/personaforge.
+language: "es-ES"
+tone_instructions: "Directo y concreto. Prioriza bugs, seguridad y rendimiento en movil sobre estilo."
+early_access: false
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
+  path_filters:
+    - "!**/node_modules/**"
+    - "!.next/**"
+    - "!package-lock.json"
+    - "!public/models/**"
+    - "!public/icons/**"
+    - "!unity-app/**"
+  path_instructions:
+    - path: "app/api/**"
+      instructions: |
+        Rutas de API de Next.js (App Router) que llaman a la API de Anthropic.
+        Revisa: que ANTHROPIC_API_KEY nunca llegue al cliente ni a logs, validacion
+        de input, uso del rate limiter (lib/rate-limit.js), manejo de errores sin
+        filtrar detalles internos, y que no se persistan transcripciones de llamadas en vivo.
+    - path: "lib/**"
+      instructions: |
+        Logica compartida del servidor (config de Anthropic, rate limiting con Upstash Redis).
+        Revisa condiciones de carrera, claves de Redis y valores por defecto seguros.
+    - path: "components/**"
+      instructions: |
+        Componentes React 19 del cliente (chat, avatar 3D con react-three-fiber, PWA, face-api.js).
+        Revisa fugas de memoria (camara, WebGL, listeners), rendimiento en telefonos Android
+        y el ciclo de actualizacion del service worker. No sugieras renombrar el vocabulario
+        de tarot/ARCANA/arquetipos: es intencional.
+  tools:
+    eslint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    github-checks:
+      enabled: true
+
+chat:
+  auto_reply: true
