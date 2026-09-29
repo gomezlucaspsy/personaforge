@@ -37,38 +37,17 @@ Open `http://localhost:3000`.
 - The client now calls `POST /api/chat`.
 - Anthropic API key is server-side only (safe for Vercel hosting).
 
-## 3) PR review automation MVP
+## 3) Automatic updates from `updates.txt`
 
-This repo now includes a comment-only GitHub webhook endpoint at `POST /api/github/pr-review`.
+Write what you want changed in `updates.txt` (as `[ ]` items or plain lines), or drop an
+`updates.pdf` / files in `updates/`, and push to `main`. The workflow
+`.github/workflows/updates-to-pr.yml` then:
 
-### What it does
+1. diffs the updates files to find the new requests,
+2. runs Claude Code to implement them, build-check, and tick them `[x]` in `updates.txt`,
+3. opens a `[updates-bot]` PR, which CodeRabbit reviews automatically,
+4. waits for you to merge it manually — merging deploys to Vercel.
 
-- accepts GitHub `pull_request` webhooks for `opened` and `synchronize`
-- verifies the `x-hub-signature-256` header with `GITHUB_WEBHOOK_SECRET`
-- fetches the PR files, commits, and check status from GitHub
-- sends structured PR context to Claude using the existing Anthropic API setup
-- posts one deduplicated PR comment per head SHA with review feedback
-
-### Required environment variables
-
-```bash
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-ANTHROPIC_MODEL=claude-sonnet-4-20250514
-PR_AUTOMATION_ENABLED=true
-GITHUB_TOKEN=github_token_with_pull_request_comment_access
-GITHUB_WEBHOOK_SECRET=replace_with_a_random_secret
-PR_AUTOMATION_BOT_NAME=Claude PR MVP
-```
-
-### GitHub webhook setup
-
-1. Create a webhook pointing to `https://your-deployment.example.com/api/github/pr-review`
-2. Choose `application/json`
-3. Set the same secret value used in `GITHUB_WEBHOOK_SECRET`
-4. Subscribe to the **Pull requests** event
-
-### MVP safety limits
-
-- This MVP only comments on PRs; it does not commit, push, or merge changes.
-- It ignores repeated deliveries for the same PR head SHA once a review comment has already been posted.
-- Large PR context is trimmed before sending it to Claude to keep the review focused and bounded.
+Setup (once): add `ANTHROPIC_API_KEY` under GitHub → Settings → Secrets and variables → Actions,
+and under Settings → Actions → General enable "Allow GitHub Actions to create and approve pull requests".
+You can also run it manually from the Actions tab (it then picks up to 3 open `[ ]` items).

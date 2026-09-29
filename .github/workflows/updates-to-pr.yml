@@ -1,0 +1,112 @@
+name: updates.txt -> Claude PR
+
+# Flow: write tasks in updates.txt (or drop updates.pdf / files in updates/),
+# push to main -> Claude implements the new tasks -> opens a PR ->
+# CodeRabbit reviews it -> you merge manually -> Vercel deploys.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "updates.txt"
+      - "updates.pdf"
+      - "updates/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: updates-to-pr
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    # Merging the bot's own PR also touches updates.txt (tasks marked [x]);
+    # skip that push so the loop doesn't re-trigger itself. Squash merges keep
+    # the "[updates-bot]" title; merge commits mention the updates-bot/ branch.
+    if: ${{ !contains(github.event.head_commit.message, 'updates-bot') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: Collect what changed in the updates files
+        id: changes
+        run: |
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            BEFORE="$(git rev-parse HEAD~1)"
+          fi
+          git diff "$BEFORE" HEAD -- updates.txt updates.pdf updates/ > /tmp/updates.diff || true
+          git diff --name-only "$BEFORE" HEAD -- updates.txt updates.pdf updates/ > /tmp/updates.files || true
+          echo "Changed update files:"; cat /tmp/updates.files
+          if [ ! -s /tmp/updates.files ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Claude implements the new tasks
+        if: steps.changes.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          claude_args: >-
+            --model claude-sonnet-5
+            --max-turns 60
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(npm run build),Bash(npm run lint),Bash(git diff:*),Bash(git status)"
+          prompt: |
+            You are the maintainer bot for PersonaForge (Next.js 15 App Router, deployed on Vercel).
+            The owner writes requested changes in updates.txt (and sometimes updates.pdf or files
+            under updates/) and pushes them. Your job is to implement ONLY the new or changed requests.
+
+            1. Read /tmp/updates.files (which update files changed) and /tmp/updates.diff (the diff).
+               If updates.pdf or a file under updates/ changed, read it in full.
+               If this was a manual run (empty diff), work on the unchecked "[ ]" items in updates.txt
+               that are small and concrete; pick at most 3.
+            2. Treat added lines / unchecked "[ ]" items in the diff as tasks. Ignore items that are
+               already "[x]", marked FUTURE, or that need manual work outside the repo (dashboards,
+               secrets, third-party accounts) — leave those unchecked.
+            3. Implement each task in the codebase, matching the existing style. Keep changes focused.
+               Keep the ARCANA / tarot / archetype / social-link vocabulary — it is core to the product.
+               Never commit secrets or edit .env files with real values.
+            4. Run `npm run build` and fix anything you broke.
+            5. In updates.txt, change "[ ]" to "[x]" for each task you completed. For any task you
+               skipped or could only partly do, add an indented line under it starting with
+               "-> bot:" explaining why in one sentence.
+            6. Finally write a short Spanish summary for the PR description to /tmp/pr-body.md:
+               what you implemented, what you skipped and why, and anything the owner must test.
+               Do not commit or push; a later step opens the PR.
+
+      - name: Discard any bot edits to workflows
+        if: steps.changes.outputs.skip != 'true'
+        run: |
+          git checkout -- .github
+          git clean -fdq -- .github
+
+      - name: Fallback PR body
+        if: steps.changes.outputs.skip != 'true'
+        run: |
+          [ -s /tmp/pr-body.md ] || echo "Cambios generados automáticamente a partir de updates.txt (run ${{ github.run_id }})." > /tmp/pr-body.md
+
+      - name: Open PR
+        if: steps.changes.outputs.skip != 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: updates-bot/${{ github.run_id }}
+          base: main
+          title: "[updates-bot] Cambios pedidos en updates.txt"
+          commit-message: "[updates-bot] Implement tasks from updates.txt"
+          body-path: /tmp/pr-body.md
+          delete-branch: true
