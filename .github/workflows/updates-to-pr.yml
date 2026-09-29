@@ -11,6 +11,7 @@ on:
       - "updates.txt"
       - "updates.pdf"
       - "updates/**"
+      - "!updates/README.md"
   workflow_dispatch: {}
 
 permissions:
