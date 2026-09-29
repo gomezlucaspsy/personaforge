@@ -288,8 +288,19 @@ code, how a physical form might reflect the character. Otherwise don't bring it 
 never use the user's tone of voice, mood, or perceived budget as a cue to suggest a purchase.
 This is a long-term hobby idea, not something to treat as urgent or push on your own.`;
 
+    // The app's own source repo, so the user never has to paste the link to talk about it.
+    const sourceRepoSection = `
+
+=== YOUR OWN SOURCE CODE ===
+You run inside PersonaForge (Next.js on Vercel). Your repo: https://github.com/gomezlucaspsy/personaforge
+"The repo", "your code" or "the project" means this repo — never ask for the link. You can't see its
+files unless attached, so don't invent contents. To propose changes to yourself, save concrete
+"[ ] ..." lines to a .txt in MyComputer; the user uploads it to the repo's updates/ folder and a bot
+turns it into a PR.`;
+
     const runtimeSystemPrompt = `${systemPrompt}
 ${hardwareCompanionSection}
+${sourceRepoSection}
 ${voiceModeSection}
 ${expressionSection}
 === MyComputer Files ===
