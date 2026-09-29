@@ -1,6 +1,6 @@
 name: updates/ -> Claude PR
 
-# Flow: upload updates/updates.txt or updates/updates.pdf,
+# Flow: upload updates.txt / updates.pdf (any .txt or .pdf) into updates/,
 # push to main -> Claude implements the new tasks -> opens a PR ->
 # CodeRabbit reviews it -> you merge manually -> Vercel deploys.
 
@@ -8,8 +8,8 @@ on:
   push:
     branches: [main]
     paths:
-      - "updates/updates.txt"
-      - "updates/updates.pdf"
+      - "updates/*.txt"
+      - "updates/*.pdf"
   workflow_dispatch: {}
 
 permissions:
@@ -47,8 +47,8 @@ jobs:
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
             BEFORE="$(git rev-parse HEAD~1)"
           fi
-          git diff "$BEFORE" HEAD -- updates/updates.txt updates/updates.pdf > /tmp/updates.diff || true
-          git diff --name-only "$BEFORE" HEAD -- updates/updates.txt updates/updates.pdf > /tmp/updates.files || true
+          git diff "$BEFORE" HEAD -- 'updates/*.txt' 'updates/*.pdf' > /tmp/updates.diff || true
+          git diff --name-only "$BEFORE" HEAD -- 'updates/*.txt' 'updates/*.pdf' > /tmp/updates.files || true
           echo "Changed update files:"; cat /tmp/updates.files
           if [ ! -s /tmp/updates.files ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -66,14 +66,15 @@ jobs:
             --allowedTools "Read,Edit,Write,Glob,Grep,Bash(npm run build),Bash(npm run lint),Bash(git diff:*),Bash(git status)"
           prompt: |
             You are the maintainer bot for PersonaForge (Next.js 15 App Router, deployed on Vercel).
-            The owner uploads updates/updates.txt or updates/updates.pdf (often written by the app's
-            own agents in their MyComputer) and pushes it. Your job is to implement ONLY the new
+            The owner uploads a .txt or .pdf into updates/ — normally updates.txt / updates.pdf, but
+            downloads sometimes get renamed like "updates (2).txt" (often written by the app's own
+            agents in their MyComputer) — and pushes it. Your job is to implement ONLY the new
             or changed requests.
 
             1. Read /tmp/updates.files (which update files changed) and /tmp/updates.diff (the diff).
                Read the changed file(s) in full (PDFs included).
                If this was a manual run (empty diff), work on unchecked "[ ]" items in
-               updates/updates.txt that are small and concrete; pick at most 3.
+               the .txt files under updates/ that are small and concrete; pick at most 3.
             2. Treat added lines / unchecked "[ ]" items in the diff as tasks. Ignore items that are
                already "[x]", marked FUTURE, or that need manual work outside the repo (dashboards,
                secrets, third-party accounts) — leave those unchecked.
@@ -81,7 +82,7 @@ jobs:
                Keep the ARCANA / tarot / archetype / social-link vocabulary — it is core to the product.
                Never commit secrets or edit .env files with real values.
             4. Run `npm run build` and fix anything you broke.
-            5. In updates/updates.txt, change "[ ]" to "[x]" for each task you completed (for plain
+            5. In the changed .txt request file, change "[ ]" to "[x]" for each task you completed (for plain
                lines without a checkbox, prefix them with "[x]"; for PDFs, skip this step). For any task you
                skipped or could only partly do, add an indented line under it starting with
                "-> bot:" explaining why in one sentence.

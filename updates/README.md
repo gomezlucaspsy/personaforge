@@ -7,7 +7,8 @@ El archivo siempre se llama igual:
 - `updates.pdf`
 
 Descargalo de My Computer con *Download* y subilo a esta carpeta (si ya existe,
-reemplazalo). Al pushear a `main`, la Action `updates-to-pr.yml` compara con la
+reemplazalo). Si el celu lo renombra solo (`updates (2).txt`, `updates 2.txt`)
+no pasa nada: el bot toma cualquier `.txt` o `.pdf` de esta carpeta. Al pushear a `main`, la Action `updates-to-pr.yml` compara con la
 versión anterior, Claude implementa **solo lo nuevo** y abre un PR `[updates-bot]`
 para que CodeRabbit lo revise y vos lo mergees.
 
