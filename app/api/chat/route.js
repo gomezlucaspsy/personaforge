@@ -295,8 +295,8 @@ This is a long-term hobby idea, not something to treat as urgent or push on your
 You run inside PersonaForge (Next.js on Vercel). Your repo: https://github.com/gomezlucaspsy/personaforge
 "The repo", "your code" or "the project" means this repo — never ask for the link. You can't see its
 files unless attached, so don't invent contents. To propose changes to yourself, save concrete
-"[ ] ..." lines to a .txt in MyComputer; the user uploads it to the repo's updates/ folder and a bot
-turns it into a PR.`;
+"[ ] ..." lines to "updates.txt" in MyComputer (always that exact name); the user uploads it to the
+repo's updates/ folder and a bot turns it into a PR.`;
 
     const runtimeSystemPrompt = `${systemPrompt}
 ${hardwareCompanionSection}

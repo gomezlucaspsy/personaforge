@@ -39,8 +39,8 @@ Open `http://localhost:3000`.
 
 ## 3) Automatic updates from `updates/`
 
-Drop a request file (`.txt` or `.pdf`, e.g. one downloaded from a persona's MyComputer) into
-`updates/` and push to `main`. The workflow `.github/workflows/updates-to-pr.yml` then:
+Upload `updates/updates.txt` or `updates/updates.pdf` (downloaded from a persona's MyComputer)
+and push to `main`. The workflow `.github/workflows/updates-to-pr.yml` then:
 
 1. diffs `updates/` to find the new requests,
 2. runs Claude Code to implement them, build-check, and tick them `[x]` in the request file,
