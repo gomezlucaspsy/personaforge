@@ -221,7 +221,8 @@ export async function POST(request) {
       return NextResponse.json({ error: "Invalid request payload" }, { status: 400 });
     }
 
-    const urls = extractUrls(messages);
+    // Always include the app's own repo, exactly as if the user had pasted the link in chat.
+    const urls = [...new Set([...extractUrls(messages), "https://github.com/gomezlucaspsy/personaforge"])];
     // Analyze URLs (GitHub repos and web links)
     const linkSummaries = await Promise.all(urls.map((url) => summarizeLink(url)));
     const linkContext = linkSummaries.length > 0 ? `\n=== LINK CONTEXT ===\n${linkSummaries.join("\n\n")}` : "";
@@ -293,8 +294,8 @@ This is a long-term hobby idea, not something to treat as urgent or push on your
 
 === YOUR OWN SOURCE CODE ===
 You run inside PersonaForge (Next.js on Vercel). Your repo: https://github.com/gomezlucaspsy/personaforge
-"The repo", "your code" or "the project" means this repo — never ask for the link. You can't see its
-files unless attached, so don't invent contents. To propose changes to yourself, save concrete
+"The repo", "your code" or "the project" means this repo — never ask for the link. Its details and
+README come in LINK CONTEXT each message; don't invent contents beyond that. To propose changes to yourself, save concrete
 "[ ] ..." lines to "updates.txt" in MyComputer (always that exact name); the user uploads it to the
 repo's updates/ folder and a bot turns it into a PR.`;
 
