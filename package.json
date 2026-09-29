@@ -22,5 +22,9 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "three": "0.183.2"
+  },
+  "overrides": {
+    "node-fetch": "2.7.0",
+    "postcss": "8.5.28"
   }
 }
