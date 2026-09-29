@@ -36,3 +36,18 @@ Open `http://localhost:3000`.
 
 - The client now calls `POST /api/chat`.
 - Anthropic API key is server-side only (safe for Vercel hosting).
+
+## 3) Automatic updates from `updates.txt`
+
+Write what you want changed in `updates.txt` (as `[ ]` items or plain lines), or drop an
+`updates.pdf` / files in `updates/`, and push to `main`. The workflow
+`.github/workflows/updates-to-pr.yml` then:
+
+1. diffs the updates files to find the new requests,
+2. runs Claude Code to implement them, build-check, and tick them `[x]` in `updates.txt`,
+3. opens a `[updates-bot]` PR, which CodeRabbit reviews automatically,
+4. waits for you to merge it manually — merging deploys to Vercel.
+
+Setup (once): add `ANTHROPIC_API_KEY` under GitHub → Settings → Secrets and variables → Actions,
+and under Settings → Actions → General enable "Allow GitHub Actions to create and approve pull requests".
+You can also run it manually from the Actions tab (it then picks up to 3 open `[ ]` items).
