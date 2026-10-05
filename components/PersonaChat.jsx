@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { mcGetTree, mcApplyAction } from "./FileExplorer";
+import { looksLikeFieldwatch, parseFieldwatch, summarizeSpectrum } from "@/lib/utils/fieldwatch-parser.js";
 
 const Avatar3D = dynamic(() => import("./Avatar3D"), { ssr: false });
 const FileExplorer = dynamic(() => import("./FileExplorer"), { ssr: false });
@@ -1360,7 +1361,12 @@ export default function PersonaChat() {
         throw new Error("Audio files can't be analyzed yet — Claude has no audio understanding. Try LIVE CALL / mic dictation instead.");
       } else {
         // Plain text / code / csv / json / markdown, etc. — read as-is.
-        const text = await readAsText(file);
+        let text = await readAsText(file);
+        // Raw Fieldwatch logs are thousands of repeated sightings — send the deduped
+        // latest snapshot instead so the persona actually gets the whole picture.
+        const scan = looksLikeFieldwatch(text) ? parseFieldwatch(text, name) : null;
+        if (scan) text = `[Fieldwatch radio export, condensed to the latest snapshot]
+${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
         setUploadedFile({ kind: "text", filename: name, mimeType: file.type || "text/plain", text: text.slice(0, MAX_TEXT_CHARS) });
       }
     } catch (err) {
@@ -2476,7 +2482,7 @@ export default function PersonaChat() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/*,video/*,application/pdf,.pdf,.docx,.txt,.md,.csv,.json,.doc"
+                      accept="image/*,video/*,application/pdf,.pdf,.docx,.txt,.md,.csv,.json,.jsonl,.doc"
                       style={{display: "none"}}
                       onChange={handleFileUpload}
                     />

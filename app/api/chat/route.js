@@ -299,9 +299,21 @@ README come in LINK CONTEXT each message; don't invent contents beyond that. To 
 "[ ] ..." lines to "updates.txt" in MyComputer (always that exact name); the user uploads it to the
 repo's updates/ folder and a bot turns it into a PR.`;
 
+    // Sibling apps the user runs alongside this one, so the persona knows how data moves between them.
+    const ecosystemSection = `
+
+=== ECOSYSTEM ===
+- Fieldwatch (Android, github.com/OffGridPete/Fieldwatch): passive Wi-Fi/BLE listener. Its CSV/JSONL
+  exports can be attached here (they arrive condensed to the latest snapshot) or loaded on the
+  /spectrum page, where the "mecha" loop reads the room's radios and reacts with vibration/light/sound.
+  Radio matches are hypotheses, never identities.
+- Native Share (github.com/gomezlucaspsy/Native): QuickShare + host agent. MyComputer files have a
+  "→ Native" button (link + QR) and a "Native" import button.`;
+
     const runtimeSystemPrompt = `${systemPrompt}
 ${hardwareCompanionSection}
 ${sourceRepoSection}
+${ecosystemSection}
 ${voiceModeSection}
 ${expressionSection}
 === MyComputer Files ===

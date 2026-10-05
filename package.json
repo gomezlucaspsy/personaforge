@@ -12,6 +12,7 @@
     "generate-icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "@react-three/drei": "10.7.7",
     "@react-three/fiber": "9.5.0",
     "@upstash/redis": "1.36.3",

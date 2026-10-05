@@ -147,6 +147,12 @@ export default function FileExplorer({ personaId, refreshKey }) {
   const [newContent, setNewContent] = useState("");
   const [addError, setAddError] = useState("");
 
+  // Native Share bridge (see app/api/native/route.js)
+  const [nativeBusy, setNativeBusy] = useState(false);
+  const [nativeShare, setNativeShare] = useState(null); // { url, qr } after sending
+  const [nativeItems, setNativeItems] = useState(null); // QuickShare list when importing
+  const [nativeError, setNativeError] = useState("");
+
   const textareaRef = useRef(null);
 
   const refresh = useCallback(() => {
@@ -161,7 +167,7 @@ export default function FileExplorer({ personaId, refreshKey }) {
     if (item.type === "folder") {
       setPath(item.path); setSelected(null); setContent(""); return;
     }
-    setSelected(item); setSaveMsg("");
+    setSelected(item); setSaveMsg(""); setNativeShare(null);
     const fs = mcLoad(personaId);
     setContent(fs[item.path]?.content || "");
   };
@@ -189,6 +195,61 @@ export default function FileExplorer({ personaId, refreshKey }) {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  };
+
+  const sendToNative = async () => {
+    if (!selected) return;
+    setNativeBusy(true); setNativeError(""); setNativeShare(null);
+    try {
+      const res = await fetch("/api/native", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: selected.name, content }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Native share failed");
+      setNativeShare(data);
+    } catch (err) {
+      setNativeError(err.message);
+    } finally {
+      setNativeBusy(false);
+    }
+  };
+
+  const toggleNativeImport = async () => {
+    if (nativeItems) { setNativeItems(null); return; }
+    setNativeBusy(true); setNativeError("");
+    try {
+      const res = await fetch("/api/native");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Native unreachable");
+      setNativeItems(data.items);
+    } catch (err) {
+      setNativeError(err.message);
+    } finally {
+      setNativeBusy(false);
+    }
+  };
+
+  const importFromNative = async (item) => {
+    setNativeBusy(true); setNativeError("");
+    try {
+      const res = await fetch(`/api/native?id=${encodeURIComponent(item.id)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      const fs = mcLoad(personaId);
+      const name = (data.name || item.name).replace(/\//g, "_");
+      const fullPath = path === "/" ? `/${name}` : `${path}/${name}`;
+      const now = new Date().toISOString();
+      fs[fullPath] = { type: "file", content: data.content, created: fs[fullPath]?.created || now, modified: now };
+      mcSave(personaId, fs);
+      setNativeItems(null);
+      refresh();
+    } catch (err) {
+      setNativeError(err.message);
+    } finally {
+      setNativeBusy(false);
+    }
   };
 
   const deleteFile = (item, e) => {
@@ -258,7 +319,29 @@ export default function FileExplorer({ personaId, refreshKey }) {
             {adding ? "Cancel" : "+ File"}
           </button>
           <button onClick={addFolder} style={{ ...S.btn("ghost"), flex: 1, padding: "5px 4px" }}>+ Dir</button>
+          <button onClick={toggleNativeImport} disabled={nativeBusy} title="Import a file from Native Share (QuickShare)"
+            style={{ ...S.btn("ghost"), flex: 1, padding: "5px 4px" }}>
+            {nativeItems ? "Close" : "Native"}
+          </button>
         </div>
+
+        {nativeError && (
+          <div style={{ padding: "6px 8px", fontSize: "10px", color: "var(--sys-danger)", borderBottom: "1px solid var(--sys-line)" }}>{nativeError}</div>
+        )}
+
+        {/* Native Share import list */}
+        {nativeItems && (
+          <div style={{ maxHeight: "40%", overflow: "auto", padding: "4px", borderBottom: "1px solid var(--sys-line)" }}>
+            <div style={{ fontSize: "9px", letterSpacing: "1px", color: "var(--sys-muted)", padding: "2px 4px 4px" }}>IMPORT FROM NATIVE</div>
+            {nativeItems.length === 0 && <div style={{ fontSize: "11px", color: "var(--sys-muted)", padding: "4px" }}>No shared files.</div>}
+            {nativeItems.map((item) => (
+              <button key={item.id} onClick={() => importFromNative(item)} disabled={nativeBusy}
+                style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", color: "var(--sys-text)", fontSize: "11px", padding: "4px 6px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                ↓ {item.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* inline add form */}
         {adding && (
@@ -326,10 +409,21 @@ export default function FileExplorer({ personaId, refreshKey }) {
               <button onClick={downloadFile} style={{ ...S.btn("ghost"), flexShrink: 0 }}>
                 Download
               </button>
+              <button onClick={sendToNative} disabled={nativeBusy} title="Send to Native Share (QuickShare link + QR)" style={{ ...S.btn("ghost"), flexShrink: 0 }}>
+                {nativeBusy ? "..." : "→ Native"}
+              </button>
               <button onClick={(e) => deleteFile(selected, e)} style={{ ...S.btn("danger"), flexShrink: 0 }}>
                 Delete
               </button>
             </div>
+
+            {nativeShare && (
+              <div style={{ padding: "8px 14px", borderBottom: "1px solid var(--sys-line)", display: "flex", alignItems: "center", gap: "10px", background: "var(--sys-panel-soft)", fontSize: "11px" }}>
+                {nativeShare.qr && <img src={nativeShare.qr} alt="QR code for the shared file" width={64} height={64} />}
+                <a href={nativeShare.url} target="_blank" rel="noreferrer" style={{ color: "var(--sys-accent)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nativeShare.url}</a>
+                <button onClick={() => setNativeShare(null)} style={{ ...S.btn("ghost"), flexShrink: 0 }}>x</button>
+              </div>
+            )}
 
             <textarea
               ref={textareaRef}
