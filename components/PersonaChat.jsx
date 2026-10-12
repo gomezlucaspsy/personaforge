@@ -36,10 +36,7 @@ const FILE_UPLOAD_ACCEPT = [
   ...[...TEXT_FILE_EXTENSIONS].map((extension) => `.${extension}`),
 ].join(",");
 
-const LIVE_FILE_UPLOAD_ACCEPT = [
-  "application/pdf", ".pdf", ".docx",
-  ...[...TEXT_FILE_EXTENSIONS].map((extension) => `.${extension}`),
-].join(",");
+const LIVE_FILE_UPLOAD_ACCEPT = FILE_UPLOAD_ACCEPT;
 
 
 const ARCANA_OPTIONS = [
@@ -2399,7 +2396,7 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                         className="p3call-round"
                         onClick={() => liveFileInputRef.current?.click()}
                         disabled={fileUploadBusy}
-                        title="Attach a PDF, document, text, or code file"
+                        title="Attach an image, video, PDF, document, text, or code file"
                         aria-label="Attach a file"
                       >
                         📎
