@@ -36,6 +36,11 @@ const FILE_UPLOAD_ACCEPT = [
   ...[...TEXT_FILE_EXTENSIONS].map((extension) => `.${extension}`),
 ].join(",");
 
+const LIVE_FILE_UPLOAD_ACCEPT = [
+  "application/pdf", ".pdf", ".docx",
+  ...[...TEXT_FILE_EXTENSIONS].map((extension) => `.${extension}`),
+].join(",");
+
 
 const ARCANA_OPTIONS = [
   { label: "0 — THE FOOL", value: "0", archetype: "THE FOOL" },
@@ -336,6 +341,7 @@ export default function PersonaChat() {
   const chatHeaderRef = useRef(null);
   const avatarHeaderRef = useRef(null);
   const fileInputRef = useRef(null);
+  const liveFileInputRef = useRef(null);
 
   // File attachment state — one attachment at a time, shape varies by `kind`:
   //  image: { kind:"image", filename, mimeType, images:[dataUrl] }
@@ -1351,11 +1357,11 @@ export default function PersonaChat() {
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = "";
     setFileUploadError(null);
 
     if (file.size > MAX_UPLOAD_BYTES) {
       setFileUploadError(`File too large (max ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB)`);
-      if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
 
@@ -1411,6 +1417,9 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
     setFileUploadError(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+    if (liveFileInputRef.current) {
+      liveFileInputRef.current.value = "";
     }
   };
 
@@ -1712,6 +1721,7 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
         .p3call-round.end{background:#e5484d;border-color:#e5484d;color:#fff;}
         .p3call-round.end:hover{background:#ff5b60;}
         .p3call-round:disabled{opacity:.4;cursor:not-allowed;}
+        .p3call-file-state{max-width:min(90vw,420px);font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1.4;color:#eaf4ff;text-align:center;overflow-wrap:anywhere;}
         .p3call-ptt{position:relative;z-index:6;display:block;margin:0 auto;padding:14px 28px;border-radius:999px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);backdrop-filter:blur(8px);color:#eaf4ff;font-size:14px;font-weight:600;letter-spacing:.3px;cursor:pointer;touch-action:none;user-select:none;-webkit-user-select:none;transition:all .12s ease;}
         .p3call-ptt.urgent{border-color:rgba(229,72,77,.6);background:rgba(229,72,77,.18);color:#ffb3b6;animation:p3interrupt-pulse 1.4s ease-in-out infinite;}
         .p3call-ptt.held{background:var(--cc,#4a8fc0);border-color:var(--cc,#4a8fc0);color:#06101c;animation:none;transform:scale(1.04);}
@@ -2353,7 +2363,19 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                         </div>
                       )}
                     </div>
-
+                    {(fileUploadBusy || fileUploadError || uploadedFile) && (
+                      <div
+                        className="p3call-file-state"
+                        role={fileUploadError ? "alert" : "status"}
+                        style={{ color: fileUploadError ? "#ff9faa" : undefined }}
+                      >
+                        {fileUploadBusy
+                          ? "Processing attachment…"
+                          : fileUploadError
+                          ? fileUploadError
+                          : `📎 ${uploadedFile.filename} ready — speak to include it or tap send`}
+                      </div>
+                    )}
                     <button
                       className={`p3call-ptt${isPttHeld ? " held" : ""}${isSpeaking ? " urgent" : ""}`}
                       onPointerDown={(e) => { e.preventDefault(); handlePttStart(); }}
@@ -2373,6 +2395,33 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                       >
                         {autoSpeak ? "🔊" : "🔇"}
                       </button>
+                      <button
+                        className="p3call-round"
+                        onClick={() => liveFileInputRef.current?.click()}
+                        disabled={fileUploadBusy}
+                        title="Attach a PDF, document, text, or code file"
+                        aria-label="Attach a file"
+                      >
+                        📎
+                      </button>
+                      <input
+                        ref={liveFileInputRef}
+                        type="file"
+                        accept={LIVE_FILE_UPLOAD_ACCEPT}
+                        style={{ display: "none" }}
+                        onChange={handleFileUpload}
+                      />
+                      {uploadedFile && (
+                        <button
+                          className="p3call-round active"
+                          onClick={() => sendMessage("Please review the attached file.")}
+                          disabled={fileUploadBusy || isTyping}
+                          title="Send attached file"
+                          aria-label="Send attached file"
+                        >
+                          ➤
+                        </button>
+                      )}
                       <button
                         className={`p3call-round${cameraOn ? " active" : ""}`}
                         onClick={toggleVideoCall}
