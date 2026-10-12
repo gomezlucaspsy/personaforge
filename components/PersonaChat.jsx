@@ -31,10 +31,7 @@ const TEXT_FILE_MIME_TYPES = new Set([
   "application/x-sh",
 ]);
 
-const FILE_UPLOAD_ACCEPT = [
-  "image/*", "video/*", "application/pdf", ".pdf", ".docx",
-  ...[...TEXT_FILE_EXTENSIONS].map((extension) => `.${extension}`),
-].join(",");
+const FILE_UPLOAD_ACCEPT = "*/*";
 
 const LIVE_FILE_UPLOAD_ACCEPT = FILE_UPLOAD_ACCEPT;
 
