@@ -31,6 +31,12 @@ const TEXT_FILE_MIME_TYPES = new Set([
   "application/x-sh",
 ]);
 
+const FILE_UPLOAD_ACCEPT = [
+  "image/*", "video/*", "application/pdf", ".pdf", ".docx",
+  ...[...TEXT_FILE_EXTENSIONS].map((extension) => `.${extension}`),
+].join(",");
+
+
 const ARCANA_OPTIONS = [
   { label: "0 — THE FOOL", value: "0", archetype: "THE FOOL" },
   { label: "I — THE MAGICIAN", value: "I", archetype: "THE MAGICIAN" },
@@ -2505,7 +2511,7 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/*,video/*,application/pdf,.pdf,.docx,.txt,.md,.markdown,.rst,.csv,.tsv,.json,.jsonl,.yaml,.yml,.toml,.ini,.cfg,.conf,.log,.xml,.html,.htm,.css,.scss,.sass,.less,.js,.jsx,.ts,.tsx,.mjs,.cjs,.vue,.svelte,.py,.pyw,.java,.c,.h,.cc,.cpp,.cxx,.hpp,.hxx,.cs,.go,.rs,.php,.rb,.swift,.kt,.kts,.dart,.r,.lua,.pl,.pm,.sh,.bash,.zsh,.fish,.sql,.graphql,.gql,.tf,.hcl,.dockerfile,.makefile,.mk,.gradle,.groovy,.ex,.exs,.erl,.hs,.scala,.sc,.clj,.cljs,.diff,.patch"
+                      accept={FILE_UPLOAD_ACCEPT}
                       style={{display: "none"}}
                       onChange={handleFileUpload}
                     />
