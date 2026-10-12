@@ -9,6 +9,27 @@ const Avatar3D = dynamic(() => import("./Avatar3D"), { ssr: false });
 const FileExplorer = dynamic(() => import("./FileExplorer"), { ssr: false });
 const InstallQR = dynamic(() => import("./InstallQR"), { ssr: false });
 
+const TEXT_FILE_EXTENSIONS = new Set([
+  "txt", "md", "markdown", "rst", "csv", "tsv", "json", "jsonl", "yaml", "yml", "toml", "ini", "cfg", "conf", "log", "xml",
+  "html", "htm", "css", "scss", "sass", "less", "js", "jsx", "ts", "tsx", "mjs", "cjs", "vue", "svelte",
+  "py", "pyw", "java", "c", "h", "cc", "cpp", "cxx", "hpp", "hxx", "cs", "go", "rs", "php", "rb", "swift", "kt", "kts",
+  "dart", "r", "lua", "pl", "pm", "sh", "bash", "zsh", "fish", "sql", "graphql", "gql", "tf", "hcl",
+  "dockerfile", "makefile", "mk", "gradle", "groovy", "ex", "exs", "erl", "hs", "scala", "sc", "clj", "cljs", "diff", "patch",
+]);
+
+const TEXT_FILE_MIME_TYPES = new Set([
+  "application/json",
+  "application/ld+json",
+  "application/xml",
+  "application/javascript",
+  "application/x-javascript",
+  "application/typescript",
+  "application/yaml",
+  "application/x-yaml",
+  "application/toml",
+  "application/sql",
+  "application/x-sh",
+]);
 
 const ARCANA_OPTIONS = [
   { label: "0 — THE FOOL", value: "0", archetype: "THE FOOL" },
@@ -1359,7 +1380,7 @@ export default function PersonaChat() {
         throw new Error("Old .doc format isn't supported — save as .docx and try again");
       } else if (file.type.startsWith("audio/")) {
         throw new Error("Audio files can't be analyzed yet — Claude has no audio understanding. Try LIVE CALL / mic dictation instead.");
-      } else {
+      } else if (file.type.startsWith("text/") || TEXT_FILE_EXTENSIONS.has(ext) || TEXT_FILE_MIME_TYPES.has(file.type)) {
         // Plain text / code / csv / json / markdown, etc. — read as-is.
         let text = await readAsText(file);
         // Raw Fieldwatch logs are thousands of repeated sightings — send the deduped
@@ -1368,6 +1389,8 @@ export default function PersonaChat() {
         if (scan) text = `[Fieldwatch radio export, condensed to the latest snapshot]
 ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
         setUploadedFile({ kind: "text", filename: name, mimeType: file.type || "text/plain", text: text.slice(0, MAX_TEXT_CHARS) });
+      } else {
+        throw new Error("Unsupported file type. Upload a text, code, image, PDF, DOCX, or video file.");
       }
     } catch (err) {
       setFileUploadError(err?.message || "Could not read that file");
@@ -2469,20 +2492,20 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                     </div>
                   </div>
                   {voiceError && <div className="p3voice-error">{voiceError}</div>}
-                  {/* File Upload — images, PDFs, video (sampled frames), .docx/text — Available to all characters */}
+                  {/* File Upload — images, PDFs, video (sampled frames), .docx, text, and code — Available to all characters */}
                   <div style={{marginBottom: "12px"}}>
                     <button
                       className="p3voice-chip"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={fileUploadBusy}
-                      title="Upload image, PDF, video, or document"
+                      title="Upload image, PDF, video, text, or code"
                     >
                       📁 UPLOAD
                     </button>
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/*,video/*,application/pdf,.pdf,.docx,.txt,.md,.csv,.json,.jsonl,.doc"
+                      accept="image/*,video/*,application/pdf,.pdf,.docx,.txt,.md,.markdown,.rst,.csv,.tsv,.json,.jsonl,.yaml,.yml,.toml,.ini,.cfg,.conf,.log,.xml,.html,.htm,.css,.scss,.sass,.less,.js,.jsx,.ts,.tsx,.mjs,.cjs,.vue,.svelte,.py,.pyw,.java,.c,.h,.cc,.cpp,.cxx,.hpp,.hxx,.cs,.go,.rs,.php,.rb,.swift,.kt,.kts,.dart,.r,.lua,.pl,.pm,.sh,.bash,.zsh,.fish,.sql,.graphql,.gql,.tf,.hcl,.dockerfile,.makefile,.mk,.gradle,.groovy,.ex,.exs,.erl,.hs,.scala,.sc,.clj,.cljs,.diff,.patch"
                       style={{display: "none"}}
                       onChange={handleFileUpload}
                     />
