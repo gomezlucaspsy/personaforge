@@ -34,6 +34,7 @@ const TEXT_FILE_MIME_TYPES = new Set([
 const FILE_UPLOAD_ACCEPT = "*/*";
 
 const LIVE_FILE_UPLOAD_ACCEPT = FILE_UPLOAD_ACCEPT;
+const MAX_NATIVE_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 
 const ARCANA_OPTIONS = [
@@ -711,6 +712,9 @@ export default function PersonaChat() {
         if (m.attachment?.kind === "text") {
           return { role: m.role, content: m.content, attachment: m.attachment };
         }
+        if (m.attachment?.kind === "shared") {
+          return { role: m.role, content: m.content, attachment: m.attachment };
+        }
         return { role: m.role, content: describeWithAttachment(m) };
       });
 
@@ -1382,10 +1386,6 @@ export default function PersonaChat() {
         const arrayBuffer = await readAsArrayBuffer(file);
         const result = await mammoth.extractRawText({ arrayBuffer });
         setUploadedFile({ kind: "text", filename: name, mimeType: file.type, text: result.value.slice(0, MAX_TEXT_CHARS) });
-      } else if (ext === "doc") {
-        throw new Error("Old .doc format isn't supported — save as .docx and try again");
-      } else if (file.type.startsWith("audio/")) {
-        throw new Error("Audio files can't be analyzed yet — Claude has no audio understanding. Try LIVE CALL / mic dictation instead.");
       } else if (file.type.startsWith("text/") || TEXT_FILE_EXTENSIONS.has(ext) || TEXT_FILE_MIME_TYPES.has(file.type)) {
         // Plain text / code / csv / json / markdown, etc. — read as-is.
         let text = await readAsText(file);
@@ -1396,7 +1396,22 @@ export default function PersonaChat() {
 ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
         setUploadedFile({ kind: "text", filename: name, mimeType: file.type || "text/plain", text: text.slice(0, MAX_TEXT_CHARS) });
       } else {
-        throw new Error("Unsupported file type. Upload a text, code, image, PDF, DOCX, or video file.");
+        if (!window.confirm("This file format can't be read directly in chat. Upload it to Native QuickShare? The link will be public to anyone who has it.")) return;
+        if (file.size > MAX_NATIVE_UPLOAD_BYTES) {
+          throw new Error(`Files in this format must be 4MB or smaller (Native QuickShare limit)`);
+        }
+        const form = new FormData();
+        form.append("file", file, name);
+        const response = await fetch("/api/native", { method: "POST", body: form });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result?.error || "Could not upload file to Native QuickShare");
+        setUploadedFile({
+          kind: "shared",
+          filename: name,
+          mimeType: file.type || "application/octet-stream",
+          size: file.size,
+          url: result.url,
+        });
       }
     } catch (err) {
       setFileUploadError(err?.message || "Could not read that file");
@@ -2213,6 +2228,23 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                                 </div>
                               </div>
                             )}
+                            {msg.attachment?.kind === "shared" && (
+                              <div style={{
+                                marginBottom: "8px",
+                                padding: "8px 12px",
+                                borderRadius: "12px",
+                                border: "1px solid var(--sys-line)",
+                                background: "var(--sys-panel-soft)",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "8px",
+                                fontSize: "12px",
+                              }}>
+                                <span>📎</span>
+                                <span>{msg.attachment.filename}</span>
+                                <a href={msg.attachment.url} target="_blank" rel="noopener noreferrer">Open shared file</a>
+                              </div>
+                            )}
                             {msg.attachment && (msg.attachment.kind === "pdf" || msg.attachment.kind === "text") && (
                               <div style={{
                                 marginBottom: "8px",
@@ -2471,7 +2503,7 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                         />
                       ) : (
                         <div style={{width: "60px", height: "60px", borderRadius: "12px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", background: "var(--sys-panel)"}}>
-                          {uploadedFile.kind === "pdf" ? "📄" : "📝"}
+                          {uploadedFile.kind === "pdf" ? "📄" : uploadedFile.kind === "shared" ? "📎" : "📝"}
                         </div>
                       )}
                       <div style={{flex: 1}}>
@@ -2480,8 +2512,14 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                           {uploadedFile.kind === "video" && `🎞 Video Uploaded (${uploadedFile.images.length} frames)`}
                           {uploadedFile.kind === "pdf" && "📄 PDF Uploaded"}
                           {uploadedFile.kind === "text" && "📝 Document Uploaded"}
+                          {uploadedFile.kind === "shared" && "📎 Shared publicly via Native QuickShare"}
                         </div>
                         {uploadedFile.filename && <div style={{fontSize: "12px", color: "var(--sys-text)", marginTop: "4px"}}>{uploadedFile.filename}</div>}
+                        {uploadedFile.kind === "shared" && (
+                          <a href={uploadedFile.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: "12px", display: "inline-block", marginTop: "4px" }}>
+                            Open shared file
+                          </a>
+                        )}
                       </div>
                       <button
                         onClick={clearFile}
