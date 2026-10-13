@@ -335,7 +335,11 @@ export default function PersonaChat() {
   const chatRef = useRef(null);
   const chatHeaderRef = useRef(null);
   const avatarHeaderRef = useRef(null);
-  const fileInputRef = useRef(null);
+  // Three pickers, like Native: Android only shows its file manager when `accept` isn't
+  // image/video, so a single mixed input traps users in the camera/gallery chooser.
+  const fileInputRef = useRef(null); // photos / videos
+  const docInputRef = useRef(null);
+  const anyInputRef = useRef(null);
   const liveFileInputRef = useRef(null);
 
   // File attachment state — one attachment at a time, shape varies by `kind`:
@@ -1223,6 +1227,8 @@ export default function PersonaChat() {
   const MAX_PDF_BYTES = 3 * 1024 * 1024;
   const MAX_TEXT_CHARS = 50000; // keep extracted document text from blowing out the context window
   const VIDEO_FRAME_COUNT = 4;
+  const DOC_ACCEPT =
+    "application/pdf,.pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/*,.txt,.md,.csv,.json,.jsonl,application/json";
   const MAX_IMAGE_DIM = 1568; // Anthropic downsizes anything larger anyway
   const VIDEO_SEEK_TIMEOUT_MS = 8000;
 
@@ -1354,8 +1360,9 @@ export default function PersonaChat() {
 
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    // Reset now so picking the same file again still fires onChange.
     e.target.value = "";
+    if (!file) return;
     setFileUploadError(null);
 
     if (file.size > MAX_UPLOAD_BYTES) {
@@ -1424,11 +1431,8 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
   const clearFile = () => {
     setUploadedFile(null);
     setFileUploadError(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-    if (liveFileInputRef.current) {
-      liveFileInputRef.current.value = "";
+    for (const ref of [fileInputRef, docInputRef, anyInputRef, liveFileInputRef]) {
+      if (ref.current) ref.current.value = "";
     }
   };
 
@@ -1500,6 +1504,8 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
         .p3sel::-webkit-scrollbar{width:6px;}
         .p3sel::-webkit-scrollbar-thumb{background:rgba(111,173,255,.35);border-radius:12px;}
         .p3title{text-align:center;margin-bottom:26px;flex-shrink:0;}
+        .p3spec{display:inline-block;margin-top:14px;padding:6px 14px;border:1px solid var(--sys-line);border-radius:999px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--sys-accent);text-decoration:none;text-transform:uppercase;background:var(--sys-panel-soft);}
+        .p3spec:hover{border-color:var(--sys-accent);background:var(--sys-accent-soft);color:var(--sys-text);}
         .p3eye{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:4px;color:var(--sys-accent);margin-bottom:10px;animation:p3flicker 6s ease infinite;text-transform:uppercase;}
         .p3main{font-family:'Orbitron',sans-serif;font-size:44px;font-weight:700;color:var(--sys-text);letter-spacing:6px;text-shadow:0 0 28px var(--sys-accent-soft);}
         .p3sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--sys-muted);letter-spacing:5px;margin-top:8px;text-transform:uppercase;}
@@ -1822,6 +1828,7 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
               <div className="p3main">SOCIAL LINK</div>
               <div className="p3sub">CONSOLE CHAT OS</div>
               <div className="p3div" />
+              <a href="/spectrum" className="p3spec">◉ SPECTRUM — radios de Fieldwatch</a>
             </div>
             <div className="p3grid2">
               {characters.map((c, i) => (
@@ -2580,22 +2587,34 @@ ${summarizeSpectrum(scan, { maxWifi: 40, maxBle: 60 })}`;
                   </div>
                   {voiceError && <div className="p3voice-error">{voiceError}</div>}
                   {/* File Upload — images, PDFs, video (sampled frames), .docx, text, and code — Available to all characters */}
-                  <div style={{marginBottom: "12px"}}>
+                  <div style={{marginBottom: "12px", display: "flex", flexWrap: "wrap", gap: "8px"}}>
                     <button
                       className="p3voice-chip"
                       onClick={() => fileInputRef.current?.click()}
                       disabled={fileUploadBusy}
-                      title="Upload image, PDF, video, text, or code"
+                      title="Upload a photo or video"
                     >
-                      📁 UPLOAD
+                      🖼 PHOTOS / VIDEOS
                     </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept={FILE_UPLOAD_ACCEPT}
-                      style={{display: "none"}}
-                      onChange={handleFileUpload}
-                    />
+                    <button
+                      className="p3voice-chip"
+                      onClick={() => docInputRef.current?.click()}
+                      disabled={fileUploadBusy}
+                      title="Upload a PDF, .docx or text document"
+                    >
+                      📄 DOCUMENTS
+                    </button>
+                    <button
+                      className="p3voice-chip"
+                      onClick={() => anyInputRef.current?.click()}
+                      disabled={fileUploadBusy}
+                      title="Pick any file from the file manager"
+                    >
+                      📁 OTHER
+                    </button>
+                    <input ref={fileInputRef} type="file" accept="image/*,video/*" style={{display: "none"}} onChange={handleFileUpload} />
+                    <input ref={docInputRef} type="file" accept={DOC_ACCEPT} style={{display: "none"}} onChange={handleFileUpload} />
+                    <input ref={anyInputRef} type="file" style={{display: "none"}} onChange={handleFileUpload} />
                   </div>
                   <div className="p3inpw">
                     <textarea
