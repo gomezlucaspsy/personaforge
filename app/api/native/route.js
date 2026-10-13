@@ -10,6 +10,7 @@ import { checkRateLimit, getClientIp } from "@/lib/rate-limit.js";
 
 const NATIVE_URL = (process.env.NATIVE_URL || "https://native-wkh7.vercel.app").replace(/\/+$/, "");
 const MAX_UPLOAD_CHARS = 500_000;
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 const MAX_IMPORT_BYTES = 500_000;
 
 const nativeHost = new URL(NATIVE_URL).hostname;
@@ -71,17 +72,32 @@ export async function POST(request) {
   const blocked = await limited(request);
   if (blocked) return blocked;
   try {
-    const body = await request.json();
-    const name = typeof body?.name === "string" ? body.name.replace(/[^\w.\- ]/g, "_").slice(0, 120) : "";
-    const content = typeof body?.content === "string" ? body.content : null;
-    if (!name || content == null) return NextResponse.json({ error: "name and content required" }, { status: 400 });
-    if (content.length > MAX_UPLOAD_CHARS) return NextResponse.json({ error: "File too large" }, { status: 413 });
-
     const form = new FormData();
-    form.append("file", new Blob([content], { type: "text/plain;charset=utf-8" }), name);
+    if (request.headers.get("content-type")?.includes("multipart/form-data")) {
+      const incoming = await request.formData();
+      const file = incoming.get("file");
+      if (!file || typeof file === "string" || typeof file.arrayBuffer !== "function") {
+        return NextResponse.json({ error: "file required" }, { status: 400 });
+      }
+      if (file.size > MAX_UPLOAD_BYTES) return NextResponse.json({ error: "File too large (max 4MB)" }, { status: 413 });
+      form.append("file", file, file.name);
+    } else {
+      const body = await request.json();
+      const name = typeof body?.name === "string" ? body.name.replace(/[^\w.\- ]/g, "_").slice(0, 120) : "";
+      const content = typeof body?.content === "string" ? body.content : null;
+      if (!name || content == null) return NextResponse.json({ error: "name and content required" }, { status: 400 });
+      if (content.length > MAX_UPLOAD_CHARS) return NextResponse.json({ error: "File too large" }, { status: 413 });
+      form.append("file", new Blob([content], { type: "text/plain;charset=utf-8" }), name);
+    }
+
     const res = await fetchNative("/api/share", { method: "POST", body: form });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) return NextResponse.json({ error: data?.error || `Native responded ${res.status}` }, { status: 502 });
+    try {
+      if (!["http:", "https:"].includes(new URL(data.url).protocol)) throw new Error("Invalid URL");
+    } catch {
+      return NextResponse.json({ error: "Native returned an invalid share URL" }, { status: 502 });
+    }
     return NextResponse.json({ url: data.url, qr: data.qr, id: data.id });
   } catch (error) {
     console.error("[native] POST", error);

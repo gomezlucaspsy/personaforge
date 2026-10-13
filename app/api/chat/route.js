@@ -191,6 +191,9 @@ export async function POST(request) {
         if (attachment?.kind === "text" && attachment.text) {
           text += `\n\n=== ATTACHED FILE: ${attachment.filename || "document"} ===\n${attachment.text.slice(0, MAX_ATTACHMENT_TEXT)}`;
         }
+        if (attachment?.kind === "shared" && attachment.url) {
+          text += `\n\n=== SHARED FILE: ${attachment.filename || "file"} ===\nThe file was shared via Native QuickShare. The link is public and can be opened by anyone who has it: ${attachment.url}. Its contents are not included in this message; do not claim to have read them unless you can access the link.`;
+        }
 
         const blocks = [{ type: "text", text: text || "[Attachment analysis requested]" }];
 
@@ -222,7 +225,7 @@ export async function POST(request) {
     }
 
     // Always include the app's own repo, exactly as if the user had pasted the link in chat.
-    const urls = [...new Set([...extractUrls(messages), "https://github.com/gomezlucaspsy/personaforge"])];
+    const urls = [...new Set([...extractUrls(incomingMessages), "https://github.com/gomezlucaspsy/personaforge"])];
     // Analyze URLs (GitHub repos and web links)
     const linkSummaries = await Promise.all(urls.map((url) => summarizeLink(url)));
     const linkContext = linkSummaries.length > 0 ? `\n=== LINK CONTEXT ===\n${linkSummaries.join("\n\n")}` : "";

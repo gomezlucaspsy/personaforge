@@ -102,5 +102,6 @@ running the poller next to Fieldwatch's export folder. 3) a `TermuxHardwareContr
 [Native](https://github.com/gomezlucaspsy/Native) uses the same flat `{ "/path": { type, content } }`
 file map as MyComputer. In MyComputer, **→ Native** uploads the open file to Native's QuickShare
 (link + QR), and **Native** lists QuickShare files and imports one into the current folder. The
-calls go through `app/api/native/route.js` because Native's API has no CORS; set `NATIVE_URL` to
-point at a different Native deployment.
+chat also sends unsupported file formats to QuickShare after confirming the upload; the resulting
+public link is attached to the message. The calls go through `app/api/native/route.js` because
+Native's API has no CORS; set `NATIVE_URL` to point at a different Native deployment.
